@@ -46,8 +46,10 @@ correctie en revisiegeschiedenis; prijshistoriek en prijsvergelijking per
 winkel; voorraad per huishouden met bewaarplaatsen en vervaldatums; afstrepen
 met onderscheid tussen opgemaakt en weggegooid; huishoudens met
 uitnodigingslinks; publieke registratie met consensus, moderatie, quota en
-misbruikpreventie; receptvoorstellen op basis van de voorraad; een Engelse,
-Nederlandse en Franse interface, met productnamen per taal.
+misbruikpreventie met een maandplafond voor de API-kosten; receptvoorstellen op
+basis van de voorraad; een Engelse, Nederlandse en Franse interface, met
+productnamen per taal; AVG-conformiteit met export, accountverwijdering,
+bewaartermijnen en verwerkersovereenkomsten.
 
 ### Uitdrukkelijk niet in versie 1
 
@@ -217,9 +219,13 @@ product_alias (
   status         text not null,    -- proposed | confirmed | established | rejected
   created_by     uuid,
   created_at     timestamptz not null default now(),
-  unique (chain_id, raw_text_norm, product_id)
+  unique nulls not distinct (chain_id, raw_text_norm, product_id)
 )
 ```
+
+`nulls not distinct` is niet optioneel. Zonder die toevoeging beschouwt Postgres
+twee rijen met `chain_id = NULL` als verschillend, en kan dezelfde
+ketenonafhankelijke alias eindeloos gedupliceerd worden.
 
 Dezelfde bontekst mag naar meerdere producten wijzen. Dat is geen fout maar een
 conflict, en consensus lost het op: de alias met de meeste bevestigingen wint.
@@ -306,8 +312,10 @@ price_observation (
   product_id             uuid not null references product,
   store_location_id      uuid not null references store_location,
   observed_at            date not null,
+  price_type             text not null,    -- shelf | paid
   unit_price_cents       int not null,     -- prijs per verkochte eenheid
-  normalized_price_cents int,              -- per liter / kg / stuk, afgeleid
+  normalized_price_cents int,              -- afgeleid, in normalized_unit
+  normalized_unit        text,             -- l | kg | stuk
   is_promo               bool not null default false,
   receipt_line_id        uuid references receipt_line,   -- niet publiek leesbaar
   submitted_by           uuid not null,
@@ -319,6 +327,41 @@ price_observation (
 Prijzen hangen aan een **vestiging**, niet aan een keten: Colruyt past prijzen
 per winkel aan op lokale concurrentie. Aggregeren naar keten kan altijd nog;
 het omgekeerde niet.
+
+`normalized_unit` moet erbij staan. Een genormaliseerde prijs zonder eenheid is
+onvergelijkbaar: €2,15 per liter en €2,15 per stuk zien er in de database
+identiek uit, en zonder dat veld sorteert je "goedkoopst"-lijst stilzwijgend
+appels bij peren.
+
+### Schapprijs en betaalde prijs
+
+Een bon toont vaak twee prijzen voor hetzelfde product:
+
+```
+COLA 1,5L          2 x  2,49      4,98
+   2E GRATIS                     -2,49
+```
+
+Daarom heeft elke waarneming een `price_type`:
+
+| `price_type` | Wat het is | Waarvoor |
+|---|---|---|
+| `shelf` | De normale prijs per eenheid (€2,49) | "Waar is dit nu het goedkoopst" |
+| `paid` | Wat je effectief per eenheid betaalde (€1,25) | Actieoverzicht, en wat je werkelijk uitgaf |
+
+Regels:
+
+- Er is **altijd** een `shelf`-waarneming.
+- Een `paid`-waarneming wordt alleen weggeschreven als die van de schapprijs
+  afwijkt, dus wanneer er een kortingsregel aan de productregel hangt.
+- Staat er een actieprijs rechtstreeks op de regel, zonder aparte
+  kortingsregel, dan is dat de `shelf`-prijs met `is_promo = true`.
+
+Zonder dit onderscheid is de prijsvergelijking onbetrouwbaar: je zou iemands
+toevallige 1+1-actie afzetten tegen andermans normale prijs, en concluderen dat
+een winkel structureel goedkoper is terwijl er die week gewoon een promotie
+liep. Met dit onderscheid zijn beide vragen te beantwoorden — waar het
+structureel goedkoopst is, én waar nu een goede actie loopt.
 
 ### Huishouden en voorraad (privé)
 
@@ -359,6 +402,8 @@ inventory_item (
   household_id      uuid not null references household,
   product_id        uuid not null references product,
   storage_place_id  uuid not null references storage_place,
+  amount            numeric not null default 1,
+  unit              text not null default 'stuk',   -- stuk | kg | g | l | ml
   acquired_at       date not null,
   expires_at        date,
   receipt_line_id   uuid references receipt_line,
@@ -369,12 +414,39 @@ inventory_item (
 )
 ```
 
-Eén rij per stuk. Drie potten passata met drie vervaldatums zijn drie rijen; in
-de app zie je "Passata ×3" met het detail eronder. Zonder die opsplitsing is
-"wat vervalt er binnenkort" niet te beantwoorden.
+Eén rij per aankoop-eenheid. Drie potten passata met drie vervaldatums zijn
+drie rijen; in de app zie je "Passata ×3" met het detail eronder. Zonder die
+opsplitsing is "wat vervalt er binnenkort" niet te beantwoorden.
+
+**Producten op gewicht passen daar niet vanzelf in.** Een bonregel
+`GEHAKT 0,684 kg × €12,99/kg` kan geen 0,684 rijen worden. Daarom hebben
+voorraaditems een `amount` en een `unit`:
+
+| Aankoop | Rijen | `amount` | `unit` |
+|---|---|---|---|
+| 3 potten passata | 3 | 1 | `stuk` |
+| 0,684 kg gehakt | 1 | 0.684 | `kg` |
+| 2 × 1 L melk | 2 | 1 | `stuk` |
+
+Afstrepen blijft **één tik op de hele rij**. Er wordt niet bijgehouden dat er
+nog 200 g gehakt over is — dat is precies de invoerlast die eerder bewust is
+afgewezen. `amount` dient om te kunnen tonen en optellen wat er ligt, niet om
+deelverbruik te administreren.
 
 Een gebruiker mag in meerdere huishoudens zitten (kot, ouderlijk huis) met één
 actief huishouden in de app. Dat kost niets extra en voorkomt tweede accounts.
+
+**Wat de rollen doen.** `member` mag alles wat met dagelijks gebruik te maken
+heeft: scannen, bevestigen, afstrepen, bewaarplaatsen aanmaken. `owner` mag
+daarnaast uitnodigingen maken en intrekken, leden verwijderen, het huishouden
+hernoemen en het huishouden opheffen. Een huishouden heeft altijd minstens één
+`owner`; de laatste kan zichzelf niet verwijderen zonder eerst iemand anders
+te promoveren.
+
+Verlaat iemand een huishouden, dan blijft de voorraad staan — die is van het
+huishouden, niet van de persoon. Wordt het huishouden opgeheven, dan gaan de
+voorraad en de bonnen mee weg; de bijdragen aan de gedeelde catalogus blijven,
+zoals beschreven in §8.
 
 ### Moderatie, vertrouwen en quota
 
@@ -405,7 +477,17 @@ usage_quota (
   recipe_calls int not null default 0,
   primary key (user_id, day)
 )
+
+app_usage (
+  month        date primary key,   -- eerste dag van de maand
+  scan_calls   int not null default 0,
+  recipe_calls int not null default 0,
+  cost_cents   int not null default 0   -- werkelijke kost uit de API-respons
+)
 ```
+
+`app_usage` is de noodrem voor de hele app, los van het quotum per gebruiker.
+Zie §7.
 
 ---
 
@@ -445,7 +527,7 @@ Per regel met `kind = 'product'`, in volgorde, stoppen bij de eerste treffer:
 
 | Trede | Methode | Resultaat |
 |---|---|---|
-| 1 | Exacte alias op `(chain_id, raw_text_norm)`, status >= `confirmed` | Automatisch |
+| 1 | Exacte alias op `raw_text_norm` met `chain_id = <keten>` **of** `chain_id IS NULL`, status >= `confirmed` | Automatisch |
 | 2 | `pg_trgm` similarity > 0,8 binnen dezelfde keten | Voorstel, één tik |
 | 3 | `pg_trgm` similarity over ketens heen | Voorstel, expliciete bevestiging |
 | 4 | Gok van het vision-model, opgezocht in Open Food Facts | Voorstel met foto en merk |
@@ -560,18 +642,22 @@ versie 1.
 Bij bevestiging gebeurt alles in één transactie in
 `server/api/receipts/[id]/confirm`:
 
-1. Voor elke productregel met een `product_id`: een `inventory_item` aanmaken,
-   tenzij de categorie `tracks_inventory = false` heeft of de gebruiker het
-   uitvinkte.
+1. Voor elke productregel met een `product_id`: `inventory_item`-rijen
+   aanmaken, tenzij de categorie `tracks_inventory = false` heeft of de
+   gebruiker het uitvinkte. Bij een aantal in stuks één rij per stuk; bij een
+   gewicht of volume één rij met dat `amount` en die `unit`.
 2. Bewaarplaats bepalen: voorstel uit `product_category.default_storage_kind`,
    overschreven door wat dit huishouden eerder voor dit product koos.
 3. Vervaldatum bepalen: geleerde mediaan voor `(product, storage_kind)`, anders
    `default_shelf_life_days` van de categorie, anders leeg. De gebruiker past
    aan met snelknoppen (+3d / +1w / +1m / +6m) of een datumkiezer. Een
    aanpassing levert een `shelf_life_observation` op.
-4. Een `price_observation` aanmaken, met `normalized_price_cents` berekend uit
-   `net_content` en `unit`, en kortingsregels verrekend.
+4. Prijswaarnemingen aanmaken: altijd één met `price_type = 'shelf'`, en een
+   tweede met `price_type = 'paid'` wanneer er een kortingsregel aan hangt.
+   `normalized_price_cents` en `normalized_unit` worden berekend uit
+   `net_content` en `unit` van het product.
 5. Nieuwe aliassen vastleggen of bestaande bevestigen.
+6. Het maandplafond bijwerken in `app_usage`.
 
 ### Voorraad en afstrepen
 
@@ -660,14 +746,62 @@ Rapporteren kan op elk product, elke alias en elke prijs. Moderatoren
 (`trust_level = 3`) hebben een eenvoudig overzicht. Op dag één is dat één
 persoon.
 
+### Productgegevens: statusovergangen
+
+`product.status` volgt dezelfde ladder als aliassen, maar hangt aan het gebruik
+ervan in plaats van aan stemmen:
+
+| Van | Naar | Wanneer |
+|---|---|---|
+| — | `proposed` | Aangemaakt door een gebruiker met `trust_level = 0`, of automatisch uit een gok van het vision-model |
+| — | `confirmed` | Aangemaakt met een geldige barcode uit Open Food Facts, of door een gebruiker met `trust_level >= 1` |
+| `proposed` | `confirmed` | Een tweede huishouden koppelt er een bonregel aan |
+| `confirmed` | `established` | Drie of meer huishoudens, of een moderator bevestigt |
+| elk | `rejected` | Moderator, of een gegronde melding |
+
+Een `proposed` product is gewoon bruikbaar in je eigen voorraad — het wordt
+alleen niet aan anderen voorgesteld op trede 2 tot 4 van de matchladder. Zo
+zit je nooit vast omdat de catalogus je nog niet vertrouwt.
+
+### Winkels aanmaken
+
+Winkelvestigingen zijn ook gedeelde data, en dus ook een vervuilingsrisico.
+Het btw-nummer op de bon is hier de redding: dat is uniek per vestiging en
+staat op elke Belgische kassabon.
+
+- Herkent de parser een btw-nummer dat al bestaat, dan wordt die vestiging
+  gebruikt. Geen vraag, geen dubbele winkels.
+- Is het btw-nummer nieuw, dan wordt de vestiging automatisch aangemaakt met
+  status `proposed`, met naam en adres van de bon.
+- Ontbreekt het btw-nummer, dan kiest de gebruiker uit vestigingen in de buurt
+  of maakt er een aan.
+- Een keten aanmaken kan **niet** door gewone gebruikers. Nieuwe ketens komen
+  in de moderatiewachtrij, want dat is de plek waar één rommelige invoer
+  honderden bonnen verkeerd groepeert.
+
 ### Vertrouwensniveaus
 
 | Niveau | Wanneer |
 |---|---|
-| 0 | Nieuw account, of minder dan 3 bijdragen die bleven staan |
+| 0 | Nieuw account: minder dan 7 dagen oud, of minder dan 5 bijdragen |
 | 1 | Normale gebruiker |
-| 2 | Veel bijdragen die bevestigd werden en bleven staan |
+| 2 | 50+ bijdragen, waarvan niets is teruggedraaid of gegrond gemeld |
 | 3 | Moderator, handmatig toegekend |
+
+**Promotie hangt niet af van bevestiging door anderen.** Dat was de eerste
+opzet, en die klopte niet: de bijdragen van een nieuwe gebruiker blijven
+`proposed` tot een ánder huishouden hetzelfde product koopt, en bij een kleine
+gebruikersbasis gebeurt dat voor de helft van de producten nooit. Een
+enthousiaste eerste gebruiker zou dan permanent op niveau 0 blijven staan,
+precies degene die je het hardst nodig hebt.
+
+Daarom promoveert niveau 0 naar 1 op **tijd plus volume** — zeven dagen en vijf
+bijdragen — zonder dat iemand anders iets hoeft te doen. Die drempel kost een
+vandaal weinig moeite, maar hij maakt drive-by-vandalisme wel onaantrekkelijk,
+en dat is wat hij moet doen. De echte bescherming zit in terugdraaien,
+outlierdetectie en melden, niet in de wachttijd.
+
+Een teruggedraaide of gegrond gemelde bijdrage zet je terug naar niveau 0.
 
 ---
 
@@ -682,6 +816,29 @@ script op je parse-endpoint zet, kost echt geld.
 - Maximale beeldgrootte en maximaal aantal foto's per bon
 - Bij overschrijding een expliciete melding, geen stille fout
 
+### De noodrem voor de hele app
+
+Een quotum per gebruiker beschermt je tegen één misbruiker, maar niet tegen
+duizend legitieme gebruikers. Daarom staat er een **maandplafond** boven het
+geheel:
+
+| Verbruik | Wat er gebeurt |
+|---|---|
+| < 80% | Niets |
+| 80% | Waarschuwing naar de beheerder |
+| 100% | Scannen en receptvoorstellen stoppen voor iedereen, met een duidelijke melding |
+
+Bij 100% blijft **de rest van de app gewoon werken**: je voorraad, je
+vervaldatums, de prijsvergelijking en het afstrepen raken het plafond niet,
+want die kosten niets. Alleen wat een API-call vereist valt stil.
+
+De kost wordt niet geschat maar afgelezen uit het tokengebruik in de
+API-respons, en per maand opgeteld in `app_usage`. Het plafond zelf staat in de
+runtime config, zodat je het kan verhogen zonder te deployen.
+
+Dit is bewust een harde stop en geen waarschuwing: de reden om het te bouwen is
+juist het scenario waarin je niet kijkt — 's nachts, of tijdens je vakantie.
+
 **Architectuurregel:** de client schrijft **nooit** rechtstreeks naar globale
 data. Aliassen, producten en prijswaarnemingen gaan altijd via `server/api`.
 Zonder die regel zijn quota, consensuslogica en outlierdetectie te omzeilen met
@@ -691,11 +848,15 @@ vanuit de client, want RLS schermt die al af.
 
 ---
 
-## 8. Privacy
+## 8. Privacy en AVG
 
 Op een kassaticket staan de laatste vier cijfers van je betaalkaart, het exacte
-tijdstip, de winkel en alles wat je die dag kocht. Dat mag nooit meeliften met
-een publieke prijswaarneming.
+tijdstip, de winkel en alles wat je die dag kocht. Je aankoopgeschiedenis is
+bovendien verrassend onthullend: ze verraadt je gezinssamenstelling, je
+gezondheid, je gewoontes en je inkomen. Dat mag nooit meeliften met een
+publieke prijswaarneming.
+
+### Scheiding van privé en publiek
 
 - Bonfoto's in een private bucket, alleen leesbaar door leden van dat
   huishouden, afgedwongen met RLS op `storage.objects`
@@ -708,6 +869,89 @@ een publieke prijswaarneming.
 - `price_observation.receipt_line_id` bestaat voor audit en terugdraaien, maar
   is niet leesbaar voor andere gebruikers
 - Wie een prijs bijdroeg is zichtbaar voor moderatoren, niet publiek
+
+### Wat er naar derden gaat
+
+Dit stond nergens en is de belangrijkste transparantieplicht van het hele
+project:
+
+| Ontvanger | Wat | Waarom |
+|---|---|---|
+| Anthropic | De bonfoto's, integraal | Om de bon uit te lezen |
+| Anthropic | Je voorraadlijst | Om recepten voor te stellen |
+| Supabase | Alle gegevens | Hosting van database, auth en opslag |
+
+Dat wordt expliciet vermeld vóór de eerste scan, niet weggestopt in een
+privacyverklaring. Beide verwerkers bieden een **verwerkersovereenkomst**; die
+worden afgesloten vóór de app opengaat.
+
+De Supabase-instantie draait in een **EU-regio** (Frankfurt). Voor de
+Anthropic-API wordt de EU-verwerking vastgelegd in de verwerkersovereenkomst.
+
+### Rechten van de gebruiker
+
+| Recht | Hoe |
+|---|---|
+| Inzage en overdraagbaarheid | Exportknop: al je eigen gegevens als JSON, met de bonfoto's |
+| Verwijdering | Account verwijderen in de instellingen, met een bevestigingsstap |
+| Correctie | Alles is rechtstreeks bewerkbaar in de app |
+| Bezwaar | Uitschrijven voor e-mails; de app stuurt geen marketing |
+
+**Wat "account verwijderen" precies doet** is de lastigste vraag van dit
+ontwerp, want je bijdragen zitten verweven in gedeelde data:
+
+- **Weg:** je bonnen en bonfoto's, je voorraad, je huishoudlidmaatschap, je
+  profiel, je quotumhistoriek. Ben je de laatste `owner` van een huishouden,
+  dan gaat dat huishouden mee.
+- **Blijft, geanonimiseerd:** aliassen, producten, vertalingen en
+  prijswaarnemingen. `submitted_by` en `created_by` worden leeggemaakt.
+
+Dat tweede is geen luiheid maar noodzaak: die bijdragen zijn de gedeelde
+catalogus. Ze verwijderen zou de data van álle andere gebruikers kapotmaken.
+Geanonimiseerd bevatten ze bovendien geen persoonsgegevens meer — een prijs
+voor melk bij Colruyt op een datum is een feit over een winkel, niet over een
+persoon. Dit staat zo in de privacyverklaring, zodat niemand erdoor verrast
+wordt.
+
+`price_observation.receipt_line_id` wijst naar een verwijderde bon en wordt
+bij verwijdering leeggemaakt, zodat de koppeling naar een persoon echt breekt.
+
+### Bewaartermijnen
+
+- Bonfoto's worden automatisch verwijderd **twaalf maanden** na de aankoop. De
+  uitgelezen regels blijven; de foto is daarna alleen nog audit-materiaal dat
+  je zelden nodig hebt en veel risico draagt. De gebruiker kan ze eerder
+  wissen, of de automatische verwijdering uitzetten.
+- Afgesloten voorraaditems blijven bewaard, want daarop steunt het
+  verspillingsoverzicht.
+
+### Toestemming en cookies
+
+De app zet alleen **strikt noodzakelijke** cookies: de sessie van Supabase Auth
+en de taalkeuze. Daarvoor is onder de ePrivacy-richtlijn geen
+toestemmingsbanner nodig, en het is eerlijker om er dan ook geen te tonen.
+
+Dat verandert op het moment dat er analytics of iets van een derde partij bij
+komt. Wordt dat gebouwd, dan hoort er een echte banner bij met een weigerknop
+die even prominent is als de accepteerknop. De keuze om nu geen analytics te
+gebruiken is bewust en hoort bij dit ontwerp.
+
+Minimumleeftijd is 16 jaar, conform de Belgische invulling van de AVG.
+
+### Wat er nog los van de code moet gebeuren
+
+Dit is geen ontwikkelwerk maar het hoort bij de oplevering, en het loopt
+parallel:
+
+- Privacyverklaring in alle drie de talen
+- Gebruiksvoorwaarden, met daarin expliciet dat bijdragen aan de catalogus
+  openbaar zijn en blijven
+- Verwerkersovereenkomsten met Anthropic en Supabase
+- Een register van verwerkingsactiviteiten
+- Een gegevensbeschermingseffectbeoordeling (DPIA) overwegen. Verplicht is ze
+  waarschijnlijk niet, maar aankoopgeschiedenis op schaal verzamelen zit dicht
+  genoeg tegen "systematische monitoring" aan om de afweging op te schrijven in
+  plaats van ze over te slaan.
 
 ---
 
@@ -752,6 +996,8 @@ server/api/
   aliases.post.ts                 handmatig een alias instellen
   recipes/suggest.post.ts         voorraad -> Claude -> voorstellen
   reports.post.ts                 rapporteren
+  account/export.get.ts           al je eigen gegevens als JSON
+  account.delete.ts               account verwijderen, bijdragen anonimiseren
 ```
 
 Sleutels (`ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) staan uitsluitend in
@@ -843,6 +1089,9 @@ De riskantste code zit niet in de UI maar in de database en de parser.
 |---|---|
 | Matchladder, consensusdrempels, outlierdetectie | Tests tegen een testdatabase |
 | RLS-scheiding tussen huishoudens | Expliciete tests met twee gebruikers |
+| Schapprijs versus betaalde prijs bij kortingen | Tests met echte kortingsregels: 2e gratis, -30%, kassakorting |
+| Account verwijderen | Test dat privédata weg is én dat de catalogus intact blijft |
+| Maandplafond | Test dat scannen stopt en de rest van de app blijft werken |
 | Vision-parser | Fixtureset van echte bonnen met verwachte JSON |
 | Scanflow van begin tot eind | Playwright |
 
@@ -887,3 +1136,16 @@ route is en geen uitzondering. Dat maakt de kwaliteit van dat formulier en van
 de correctieflow belangrijker dan de OFF-koppeling zelf: als zelf aanmaken
 vervelend is, stopt de catalogus met groeien precies daar waar hij het hardst
 moet groeien.
+
+**Het juridische spoor loopt niet vanzelf mee.** Verwerkersovereenkomsten,
+privacyverklaring in drie talen en gebruiksvoorwaarden zijn geen code en gaan
+daarom makkelijk vergeten worden tot vlak voor de lancering. Ze zijn wel
+blokkerend om open te gaan. Zet ze als een apart spoor in de planning, niet als
+laatste taak.
+
+**Eén valuta.** Alle bedragen zijn in euro en er is geen omrekening. Voor
+België en Nederland is dat prima; een gebruiker die in Zwitserland of het
+Verenigd Koninkrijk winkelt krijgt onzin. `receipt.currency` bestaat al, dus
+het model blokkeert niets, maar de prijsvergelijking gaat uit van euro.
+Bonnen in een andere valuta worden bij het uitlezen geweigerd met een
+duidelijke melding.
