@@ -39,7 +39,8 @@ mensen scannen, hoe minder werk elke scan kost en hoe rijker de prijsdata.
 ### In versie 1
 
 Bonnen fotograferen en laten uitlezen; producten herkennen via aliassen,
-fuzzy matching, barcode en Open Food Facts; een globale catalogus met
+fuzzy matching, barcode en Open Food Facts; producten zelf aanmaken met een
+eigen foto; een globale catalogus met
 correctie en revisiegeschiedenis; prijshistoriek en prijsvergelijking per
 winkel; voorraad per huishouden met bewaarplaatsen en vervaldatums; afstrepen
 met onderscheid tussen opgemaakt en weggegooid; huishoudens met
@@ -69,7 +70,7 @@ dicht genoeg is.
 | Frontend | Nuxt 4 (Vue) met Nuxt UI, SSR | Bestaande huistaal; server-routes vervangen Edge Functions |
 | Backend | Supabase | Postgres, Auth, Storage, RLS in één; `pg_trgm` voor fuzzy matching |
 | Bon uitlezen | Claude met vision | Werkt dag één voor elke keten zonder parser per winkel |
-| Productdata | Open Food Facts, gecachet | Echte namen, merken, foto's; geen eigen catalogus opbouwen |
+| Productdata | Gebruikers, met Open Food Facts als voorzet | OFF versnelt de start, maar is nooit de enige bron; wat er niet in staat maakt de gebruiker zelf aan |
 | Deelmodel | Catalogus en prijzen globaal, voorraad per huishouden | Gedeelde inspanning zonder je boodschappengedrag te delen |
 | Publiek | Open voor iedereen, vanaf dag één | De gedeelde inspanning ís het product |
 | Moderatie | Consensus uit herhaling, geen wachtrij vooraf | Onafhankelijke bonnen zijn bewijs; schaalt vanzelf |
@@ -143,8 +144,10 @@ product (
   category_id   uuid references product_category,
   net_content   numeric,            -- 1000
   unit          text,               -- ml | g | stuk
-  image_url     text,
-  off_synced_at timestamptz,        -- laatst ververst uit Open Food Facts
+  image_url     text,               -- uit OFF of door een gebruiker geüpload
+  image_source  text,               -- off | user
+  off_synced_at timestamptz,        -- laatst ververst uit Open Food Facts, leeg
+                                    -- bij een zelf aangemaakt product
   status        text not null,      -- proposed | confirmed | established | rejected
   created_by    uuid references auth.users,
   created_at    timestamptz not null default now()
@@ -445,13 +448,51 @@ Per regel met `kind = 'product'`, in volgorde, stoppen bij de eerste treffer:
 | 2 | `pg_trgm` similarity > 0,8 binnen dezelfde keten | Voorstel, één tik |
 | 3 | `pg_trgm` similarity over ketens heen | Voorstel, expliciete bevestiging |
 | 4 | Gok van het vision-model, opgezocht in Open Food Facts | Voorstel met foto en merk |
-| 5 | Niets | Gebruiker zoekt, of scant de barcode van het product |
+| 5 | Niets | Gebruiker zoekt in de eigen catalogus, scant de barcode, of maakt het product zelf aan |
 
 Trede 1 is het hele punt: bij een tweede bezoek aan dezelfde winkel is een
 groot deel van de bon meteen opgelost, zonder API-kost en zonder handwerk. Elke
 keer dat iemand op trede 5 uitkomt en het oplost, verhuist die regel voor
 iedereen permanent naar trede 1. Het vision-model is dus geen vaste kost per
 bon maar de ontdekkingskost voor onbekende regels, en die neemt af.
+
+### Een product zelf aanmaken
+
+Open Food Facts is een **voorzet, geen voorwaarde**. Het vult velden vooraf in
+zodat je meestal niets hoeft te typen, maar de catalogus is van de gebruikers.
+Wat er niet in staat, maak je zelf aan — en dat is geen randgeval: voor
+schoonmaakmiddelen, diepvriesproducten van huismerken, versafdeling en
+streekproducten is zelf aanmaken eerder regel dan uitzondering.
+
+Het formulier is bewust kort. Alleen de naam is verplicht:
+
+| Veld | Status | Vooraf ingevuld uit |
+|---|---|---|
+| Naam, in de taal van de gebruiker | Verplicht | OFF, of de gok van het vision-model uit de bontekst |
+| Merk | Optioneel | OFF, of de bontekst |
+| Inhoud en eenheid | Sterk aangeraden | OFF, of uit de bontekst (`MELK 1L` → 1000 ml) |
+| Categorie | Optioneel | OFF-categorie, anders een gok uit de naam |
+| Barcode | Optioneel | Gescand |
+| Foto | Optioneel | OFF, anders zelf maken |
+
+Inhoud en eenheid zijn optioneel maar worden nadrukkelijk gevraagd, want
+zonder die twee valt dit product uit de prijsvergelijking — dat wordt in het
+formulier ook zo gezegd, in plaats van het stilletjes te laten gebeuren.
+
+Een zelf aangemaakt product start op `proposed` en doorloopt daarna dezelfde
+consensusladder als elk ander product. Een vertaling die de gebruiker zelf
+intikt krijgt `source = 'user'` en weegt zwaarder dan een machinevertaling.
+
+**Productfoto's.** Staat er geen afbeelding in Open Food Facts, dan maak je er
+zelf een. Die gaat naar een **publieke** bucket, want een productfoto is
+catalogusdata en hoort bij het gedeelde deel — in tegenstelling tot je
+bonfoto's, die privé blijven. Een geüploade foto vervangt de OFF-afbeelding
+niet automatisch; beide kunnen bestaan en de nieuwste bevestigde wint.
+
+Later mogelijk, nu niet: producten die hier ontstaan **terugsturen naar Open
+Food Facts**. Dat past bij dezelfde gedachte van gedeelde inspanning, maar het
+vraagt een eigen account- en kwaliteitsafspraak met hen en hoort niet in
+versie 1.
 
 ### Bevestigen van een bon
 
@@ -597,6 +638,10 @@ een publieke prijswaarneming.
 
 - Bonfoto's in een private bucket, alleen leesbaar door leden van dat
   huishouden, afgedwongen met RLS op `storage.objects`
+- **Productfoto's in een aparte, publieke bucket.** Die horen bij de gedeelde
+  catalogus en mogen door iedereen gezien worden. De scheiding tussen die twee
+  buckets is hard: een bonfoto belandt nooit in de publieke, wat de gebruiker
+  ook doet
 - Publiek zichtbaar bij een prijs: **product, winkel, datum, prijs, promo
   ja/nee.** Meer niet.
 - `price_observation.receipt_line_id` bestaat voor audit en terugdraaien, maar
@@ -619,7 +664,7 @@ een publieke prijswaarneming.
 | Supabase-integratie | `@nuxtjs/supabase` |
 | Fuzzy matching | `pg_trgm` in Postgres |
 | Bon uitlezen | Claude met vision |
-| Productdata | Open Food Facts, gecachet in `product` |
+| Productdata | Gebruikers, met Open Food Facts gecachet in `product` als voorzet |
 
 Er zijn **geen Supabase Edge Functions**. De Nitro-routes vervullen die rol, in
 dezelfde taal en hetzelfde deployment.
@@ -638,7 +683,9 @@ server/api/
   receipts/[id]/confirm.post.ts   voorraad + prijzen + aliassen, in één transactie
   products/search.get.ts          eigen catalogus, met Open Food Facts als aanvulling
   products/by-gtin/[gtin].get.ts  barcode-opzoeking, gecachet
+  products.post.ts                zelf een product aanmaken
   products/[id].patch.ts          naam of merk corrigeren, met revisie
+  products/[id]/image.post.ts     eigen productfoto uploaden
   aliases.post.ts                 handmatig een alias instellen
   recipes/suggest.post.ts         voorraad -> Claude -> voorstellen
   reports.post.ts                 rapporteren
@@ -747,5 +794,9 @@ eerste gebruikers al het werk. Te verzachten door de catalogus vooraf te vullen
 met veelvoorkomende Belgische producten uit Open Food Facts.
 
 **Dekking van Open Food Facts.** Sterk voor voeding, dunner voor
-schoonmaakmiddelen, non-food en huismerken. Die gaten vullen gebruikers zelf;
-de alias- en correctieflow moet dus prettig genoeg zijn om dat vol te houden.
+schoonmaakmiddelen, non-food en huismerken — en juist huismerken zijn een groot
+deel van een gemiddelde kar. Reken er dus op dat zelf aanmaken een veelgebruikte
+route is en geen uitzondering. Dat maakt de kwaliteit van dat formulier en van
+de correctieflow belangrijker dan de OFF-koppeling zelf: als zelf aanmaken
+vervelend is, stopt de catalogus met groeien precies daar waar hij het hardst
+moet groeien.
