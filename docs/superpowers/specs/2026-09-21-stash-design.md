@@ -81,6 +81,11 @@ dicht genoeg is.
 | Voorraad | Eén rij per stuk | Anders geen twee vervaldatums per product mogelijk |
 | Huismerken | Gewoon een product | Blijkt vanzelf uit de aliassen; scheelt een tabel |
 | Meertaligheid | Engels, Nederlands en Frans vanaf de start | Productnamen zijn taalafhankelijk; achteraf inbouwen is een migratie. Frans is in België geen extra taal maar de helft van het land |
+| Hosting | Cloudflare Workers | Goedkoop, snel, met Queues en Cron ingebouwd; beeldbewerking verhuist naar de telefoon |
+| Parsen | Asynchroon via Queues, Realtime seint de client | Een bon uitlezen duurt te lang om naar te kijken; werkt ook als fundament voor een latere native app |
+| Koude start | OFF-dump importeren én zelf aliassen aanleggen | De import geeft producten maar nul aliassen; zonder eigen bonnen begint iedereen alsnog bij nul |
+| Kosten | Maandplafond met harde stop | Een quotum per gebruiker beschermt niet tegen duizend legitieme gebruikers |
+| Prijzen bij korting | Twee waarnemingen: schapprijs en betaalde prijs | Anders vergelijk je andermans actie met iemands normale prijs |
 
 ---
 
@@ -263,7 +268,8 @@ receipt (
   purchased_at      timestamptz,
   currency          char(3) not null default 'EUR',
   total_cents       int,
-  status            text not null,  -- uploaded | parsing | needs_review | confirmed | failed
+  status            text not null,  -- uploaded | queued | parsing | needs_review
+                                    -- | confirmed | failed
   parse_model       text,
   parse_error       text,
   parsed_at         timestamptz,
@@ -510,16 +516,25 @@ E-mailverificatie is verplicht voordat je mag scannen.
 ### Scannen
 
 ```
-foto's -> Storage -> server/api/receipts/[id]/parse -> Claude vision
-                                                            |
+foto's, verkleind op de telefoon
+        |
+     Storage  ->  parse-route: quota + plafond  ->  wachtrij  (antwoordt meteen)
+                                                        |
+                                          consumer-Worker: Claude vision
+                                                        |
                           winkel herkennen (btw-nummer / adres / naam)
-                                                            |
+                                                        |
                                     per regel: de matchladder
-                                                            |
+                                                        |
+                               status -> needs_review, Realtime seint de client
+                                                        |
                                               reviewscherm
-                                                            |
+                                                        |
      voorraaditems + prijswaarnemingen + nieuwe of bevestigde aliassen
 ```
+
+Het parsen gebeurt in de achtergrond; de gebruiker hoeft niet te blijven
+kijken. Zie §9 voor de statusmachine.
 
 ### De matchladder
 
@@ -735,7 +750,7 @@ Voorstellen zijn zichtbaar, maar gemarkeerd.
 De outlierdetectie vangt in één regel code zowel typefouten (`1299` in plaats
 van `12,99`) als moedwillige onzin, zonder dat er een mens aan te pas komt.
 
-### Productgegevens
+### Productgegevens wijzigen
 
 Wikipedia-model: **wijzigen mag direct, alles is een revisie, terugdraaien is
 één tik.** Een goedkeuringswachtrij vooraf remt duizend goede bijdragen om tien
@@ -879,14 +894,16 @@ project:
 |---|---|---|
 | Anthropic | De bonfoto's, integraal | Om de bon uit te lezen |
 | Anthropic | Je voorraadlijst | Om recepten voor te stellen |
-| Supabase | Alle gegevens | Hosting van database, auth en opslag |
+| Supabase | Alle gegevens, opgeslagen in Frankfurt | Database, auth en opslag |
+| Cloudflare | Alle verkeer, in doorvoer | Hosting van de applicatie |
 
 Dat wordt expliciet vermeld vóór de eerste scan, niet weggestopt in een
-privacyverklaring. Beide verwerkers bieden een **verwerkersovereenkomst**; die
-worden afgesloten vóór de app opengaat.
+privacyverklaring. Alle drie bieden een **verwerkersovereenkomst**; die worden
+afgesloten vóór de app opengaat.
 
-De Supabase-instantie draait in een **EU-regio** (Frankfurt). Voor de
-Anthropic-API wordt de EU-verwerking vastgelegd in de verwerkersovereenkomst.
+De Supabase-instantie draait in een **EU-regio** (Frankfurt), dus alle
+opgeslagen gegevens blijven in de EU. Voor Cloudflare geldt dat niet vanzelf —
+zie §9 — en die keuze moet expliciet gemaakt en vermeld worden.
 
 ### Rechten van de gebruiker
 
@@ -964,8 +981,11 @@ parallel:
 | Frontend | Nuxt 4 (Vue 3), SSR, PWA |
 | Componenten | Nuxt UI (Tailwind CSS, Reka UI) |
 | Meertaligheid | `@nuxtjs/i18n`, locales `en`, `nl` en `fr` |
-| Server | Nitro `server/api` routes |
-| Database, auth, opslag | Supabase (Postgres, Auth, Storage, RLS) |
+| Server | Nitro `server/api` routes, Cloudflare Workers-preset |
+| Hosting | Cloudflare Workers, met Assets voor de statische bestanden |
+| Achtergrondwerk | Cloudflare Queues |
+| Periodieke taken | Cloudflare Cron Triggers |
+| Database, auth, opslag | Supabase (Postgres, Auth, Storage, RLS), EU-regio |
 | Supabase-integratie | `@nuxtjs/supabase` |
 | Fuzzy matching | `pg_trgm` in Postgres |
 | Bon uitlezen | Claude met vision |
@@ -973,6 +993,81 @@ parallel:
 
 Er zijn **geen Supabase Edge Functions**. De Nitro-routes vervullen die rol, in
 dezelfde taal en hetzelfde deployment.
+
+### Wat Cloudflare Workers oplegt
+
+De keuze voor Workers is goedkoop en snel, maar de runtime is beperkter dan
+Node. Drie dingen volgen daaruit, en ze zijn geen detail:
+
+**Beeldbewerking gebeurt op de telefoon, niet op de server.** `sharp` en andere
+native beeldbibliotheken draaien niet op Workers. Dat is hier geen probleem
+maar een verbetering: de foto wordt in de browser verkleind en gecomprimeerd
+vóór het uploaden. Dat scheelt uploadtijd op mobiele data, houdt de kost van de
+vision-call in de hand, en omzeilt de beperking volledig. Een bon van drie
+foto's van elk 4 MB wordt zo een upload van een paar honderd kilobyte.
+
+**Achtergrondwerk loopt via Cloudflare Queues, niet via `waitUntil`.**
+`waitUntil` houdt een Worker in leven nadat het antwoord verstuurd is, maar het
+is geen duurzame wachtrij: sterft de Worker, dan is het werk weg en weet
+niemand dat. Queues geeft je herhaalpogingen, een dead-letter-wachtrij en
+zichtbaarheid. Voor iets dat geld kost per poging is dat het verschil tussen
+een systeem en een gok.
+
+**Cron Triggers doen het periodieke werk**: de e-mails over wat binnenkort
+vervalt, en het verversen van de Open Food Facts-gegevens.
+
+### Asynchroon parsen
+
+Een bon uitlezen duurt te lang om iemand ernaar te laten kijken, zeker bij
+meerdere foto's. Daarom is het parsen een achtergrondtaak met een
+statusmachine:
+
+```
+uploaded  ->  queued  ->  parsing  ->  needs_review  ->  confirmed
+                             |
+                             +------->  failed
+```
+
+1. De client verkleint de foto's en uploadt ze naar Storage.
+2. `POST /api/receipts/[id]/parse` controleert quotum en maandplafond, zet de
+   status op `queued` en plaatst een bericht op de wachtrij. Antwoordt meteen.
+3. De consumer-Worker haalt het bericht op, zet `parsing`, roept Claude aan,
+   schrijft `receipt_line`-rijen weg, draait de matchladder en zet
+   `needs_review`.
+4. De client luistert via **Supabase Realtime** op die ene `receipt`-rij en
+   toont het reviewscherm zodra de status verandert.
+
+De gebruiker kan intussen wegklikken, de app sluiten of zijn telefoon
+wegleggen. Mislukt het parsen, dan gaat de status naar `failed` met de reden in
+`parse_error`, en kan de gebruiker het opnieuw proberen zonder nieuwe foto's te
+maken.
+
+Dit is meteen ook het fundament voor een latere native app: die luistert op
+precies dezelfde statusrij.
+
+### EU-dataresidentie op Workers
+
+Hier zit een spanning met de AVG-keuze in §8, en het is beter die nu op te
+schrijven dan ze later te ontdekken.
+
+Supabase staat in Frankfurt, dus **alle opgeslagen gegevens blijven in de EU**.
+Workers draaien echter aan de rand van het netwerk, en Cloudflare garandeert
+standaard niet in welke regio een verzoek verwerkt wordt. In de praktijk landt
+een Belgische gebruiker in Brussel, Amsterdam of Frankfurt, maar zonder
+garantie.
+
+Twee wegen, allebei verdedigbaar:
+
+- **Cloudflare Data Localization Suite** — een betaalde uitbreiding die
+  verwerking binnen de EU afdwingt. Duurste en meest waterdichte optie.
+- **Verwerkersovereenkomst met standaardcontractbepalingen**, en in de
+  privacyverklaring vermelden dat verwerking door Cloudflare buiten de EU kan
+  plaatsvinden. Cloudflare biedt die overeenkomst standaard aan. Juridisch
+  correct, en gebruikelijk.
+
+Te beslissen vóór de app opengaat, niet erna. Voor een project dat nog geen
+gebruikers heeft is de tweede weg de verstandige; de eerste wordt interessant
+zodra er echt volume is.
 
 Nuxt UI levert de hele interfacelaag kant-en-klaar: tabellen, formulieren,
 modals, toasts, commandopalet en een donkere modus. Dat scheelt precies het
@@ -998,6 +1093,15 @@ server/api/
   reports.post.ts                 rapporteren
   account/export.get.ts           al je eigen gegevens als JSON
   account.delete.ts               account verwijderen, bijdragen anonimiseren
+```
+
+Daarnaast, buiten de routes om:
+
+```
+queue consumer      vision-call, receipt_lines vullen, matchladder draaien
+cron: dagelijks     e-mails over wat binnenkort vervalt
+cron: wekelijks     Open Food Facts verversen
+cron: dagelijks     bonfoto's ouder dan twaalf maanden verwijderen
 ```
 
 Sleutels (`ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) staan uitsluitend in
@@ -1068,6 +1172,52 @@ lastig heeft:
 De gedecodeerde GTIN wordt server-side opgezocht, nooit rechtstreeks vanuit de
 client — anders loopt de Open Food Facts-cache en het quotum eromheen.
 
+### De catalogus opstarten
+
+Op dag één is de databank leeg en doen de eerste gebruikers al het werk. Dat
+wordt in twee stappen opgelost, en de tweede is belangrijker dan de eerste.
+
+**Stap 1 — de Open Food Facts-dump importeren.** OFF publiceert volledige
+exports. Daaruit wordt de Belgische en Nederlandse selectie gefilterd op
+`countries_tags`, en overgenomen: EAN, productnamen per taal, merk, inhoud,
+categorie en afbeelding. Dat levert tienduizenden producten op met echte namen
+en foto's, en zorgt dat zoeken lokaal gebeurt in plaats van via hun API.
+
+Een Cron Trigger ververst de import periodiek.
+
+**Stap 2 — zelf aliassen aanleggen vóór de app opengaat.** Dit is de stap die
+er echt toe doet. De import geeft je producten maar **nul aliassen**, dus zonder
+deze stap landt elke eerste bon nog steeds op trede 4 of 5.
+
+Scan daarom zelf 20 tot 30 eigen bonnen over Colruyt, Delhaize, Lidl, Aldi,
+Carrefour en Albert Heijn, en los alle regels op. Dat legt de eerste honderden
+aliassen aan voor precies de producten die iedereen koopt — de kop van de
+verdeling dekt een groot deel van een gemiddelde kar. De eerste echte gebruiker
+ziet dan meteen een bon die grotendeels vanzelf klopt, in plaats van een
+lijstje werk.
+
+Diezelfde bonnen zijn je testfixtures uit §10. Eén inspanning, twee
+opbrengsten.
+
+**De licentie van Open Food Facts is geen formaliteit.** De gegevens staan
+onder de **Open Database License (ODbL)** en de foto's onder CC-BY-SA. ODbL is
+share-alike: een afgeleide databank moet onder dezelfde voorwaarden
+beschikbaar zijn, en naamsvermelding is verplicht.
+
+Voor Stash betekent dat concreet:
+
+- Zichtbare bronvermelding van Open Food Facts, bij producten die eruit komen
+  en in de colofon
+- Rekening houden met de mogelijkheid dat de catalogus zelf onder ODbL
+  beschikbaar moet worden gesteld
+
+Dat tweede botst niet met dit project maar past er juist bij: een open,
+gedeelde catalogus is precies het idee. Maar het moet een **bewuste keuze**
+zijn die in de gebruiksvoorwaarden staat, en geen ontdekking achteraf. Een
+alternatief is de geïmporteerde OFF-gegevens herkenbaar gescheiden houden van
+wat gebruikers zelf bijdragen; `product_translation.source` en
+`product.image_source` maken dat onderscheid al mogelijk.
+
 ### Offline
 
 De voorraadlijst moet werken zonder netwerk — je staat in de kelder of bij de
@@ -1093,7 +1243,8 @@ De riskantste code zit niet in de UI maar in de database en de parser.
 | Account verwijderen | Test dat privédata weg is én dat de catalogus intact blijft |
 | Maandplafond | Test dat scannen stopt en de rest van de app blijft werken |
 | Vision-parser | Fixtureset van echte bonnen met verwachte JSON |
-| Scanflow van begin tot eind | Playwright |
+| De wachtrij | Test dat een mislukte parse opnieuw geprobeerd wordt en in de dead-letter belandt |
+| Scanflow van begin tot eind | Playwright, inclusief wachten op de Realtime-statuswissel |
 
 **Begin vanaf vandaag kassabonnen te fotograferen.** Vijftien tot twintig echte
 bonnen van Colruyt, Delhaize, Lidl, Aldi, Carrefour en Albert Heijn, elk met de
@@ -1109,11 +1260,22 @@ Namen hoort net zo goed getest te zijn als een Colruyt-bon uit Aalst.
 
 ## 11. Bekende risico's en open punten
 
-**Duur van de vision-call versus de timeout van je host.** Een bon uitlezen
-duurt tien tot dertig seconden. Sommige serverless-hosts kappen af op tien. Op
-te lossen bij de keuze van de host (een limiet van 60 s volstaat), of door het
-parsen asynchroon te maken met `receipt.status` en Supabase Realtime. Te
-beslissen bij de implementatie.
+**EU-dataresidentie op Cloudflare.** Opgeslagen gegevens staan in Frankfurt,
+maar Workers verwerken standaard zonder regiogarantie. Kiezen tussen de Data
+Localization Suite en een verwerkersovereenkomst met standaardcontractbepalingen,
+vóór de app opengaat. Zie §9.
+
+**De ODbL-licentie van Open Food Facts.** Share-alike met verplichte
+naamsvermelding. Past bij het idee van een open catalogus, maar het moet een
+bewuste keuze zijn die in de gebruiksvoorwaarden staat. Zie §9.
+
+**Cloudflare Workers is de minst beproefde combinatie hier.** Nuxt draait erop,
+maar de runtime is beperkter dan Node en dat merk je pas bij het derde
+onverwachte pakket. De Anthropic-SDK en `supabase-js` zijn op fetch gebouwd en
+horen te werken; dat is het eerste wat bevestigd moet worden, vóór de rest
+erop gebouwd wordt. Valt het tegen, dan is overstappen naar een container-host
+een kwestie van een andere Nitro-preset — het datamodel en de wachtrijlogica
+blijven staan.
 
 **Push-notificaties op iOS.** Een PWA kan pas pushen als hij op het beginscherm
 staat, en dat is op iOS historisch wankel. "Je yoghurt vervalt morgen" krijgt
@@ -1124,10 +1286,6 @@ sterkste argument om later alsnog naar Expo te gaan.
 draait alles op een WebAssembly-lezer. Die is trager en gevoeliger voor slecht
 licht, terwijl het scannen juist de vlotste weg naar een opgeloste regel hoort
 te zijn. Vroeg testen op een echte iPhone, niet pas bij de oplevering.
-
-**Koude start van de catalogus.** Op dag één is de databank leeg en doen de
-eerste gebruikers al het werk. Te verzachten door de catalogus vooraf te vullen
-met veelvoorkomende Belgische producten uit Open Food Facts.
 
 **Dekking van Open Food Facts.** Sterk voor voeding, dunner voor
 schoonmaakmiddelen, non-food en huismerken — en juist huismerken zijn een groot
