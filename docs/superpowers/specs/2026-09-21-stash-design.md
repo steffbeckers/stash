@@ -40,7 +40,8 @@ mensen scannen, hoe minder werk elke scan kost en hoe rijker de prijsdata.
 
 Bonnen fotograferen en laten uitlezen; producten herkennen via aliassen,
 fuzzy matching, barcode en Open Food Facts; producten zelf aanmaken met een
-eigen foto; een globale catalogus met
+eigen foto; een wachtrij van onherkende bonregels en aliasbeheer per product;
+een globale catalogus met
 correctie en revisiegeschiedenis; prijshistoriek en prijsvergelijking per
 winkel; voorraad per huishouden met bewaarplaatsen en vervaldatums; afstrepen
 met onderscheid tussen opgemaakt en weggegooid; huishoudens met
@@ -456,6 +457,66 @@ keer dat iemand op trede 5 uitkomt en het oplost, verhuist die regel voor
 iedereen permanent naar trede 1. Het vision-model is dus geen vaste kost per
 bon maar de ontdekkingskost voor onbekende regels, en die neemt af.
 
+### Een onherkende regel oplossen
+
+Trede 5 is geen mislukking maar een **taak**: er staat een stuk bontekst dat
+nog geen product heeft, en dat moet verduidelijkt worden. De bontekst zelf is
+al bekend — wat ontbreekt is waar hij naar wijst.
+
+**Het blokkeert nooit.** Je kan een bon bevestigen met openstaande regels. Die
+regels leveren alleen nog geen voorraaditem en geen prijswaarneming op; ze
+blijven op je lijstje staan. Dat is bewust: je staat met volle tassen in de
+keuken en je wil niet vastzitten op één onbekend potje.
+
+Drie manieren om zo'n regel op te lossen, in volgorde van hoe weinig werk ze
+kosten:
+
+| | Weg | Wat er gebeurt |
+|---|---|---|
+| 1 | **Barcode van het product scannen** | GTIN → bestaand product, of → Open Food Facts → nieuw product met naam, merk en foto |
+| 2 | **Zoeken in de catalogus** | Je typt een paar letters en kiest een bestaand product |
+| 3 | **Zelf aanmaken** | Het formulier hieronder, met de bontekst als vertrekpunt |
+
+Weg 1 is de bedoelde route, want je hebt het product op dat moment toch in
+handen bij het uitpakken. Eén scan levert naam, merk, inhoud én foto op zonder
+één toetsaanslag.
+
+Wat alle drie de wegen doen: **de alias wegschrijven.** Op dat moment ontstaat
+`product_alias` met de genormaliseerde bontekst, de keten en het gekozen
+product. Vanaf de volgende bon valt die regel op trede 1.
+
+### Aliassen beheren buiten de scanflow
+
+Aliassen zijn niet alleen een bijproduct van het scannen. Op de productpagina
+staat een overzicht van alle bonteksten die naar dat product wijzen, per keten,
+en daar kan je er zelf bijzetten, corrigeren of losmaken.
+
+Dat is nodig voor drie gevallen die anders blijven hangen:
+
+- Een keten die zijn bontekst verandert (`COLR BIO MELK 1L` → `BIO MELK HALFV`)
+- Een alias die naar het verkeerde product wijst en losgemaakt moet worden
+- Dezelfde bontekst die bij verschillende ketens hetzelfde product blijkt te
+  zijn, en die je dus alvast voor die andere keten kan vastleggen
+
+Losmaken of corrigeren van een alias volgt dezelfde revisie- en
+terugdraailogica als een productwijziging.
+
+### De wachtrij van onopgeloste regels
+
+Een onopgeloste regel is simpelweg een `receipt_line` met een lege
+`product_id`. Er is geen aparte tabel voor nodig; een view groepeert ze op
+`(chain_id, raw_text_norm)` en toont hoeveel mensen op dezelfde verduidelijking
+wachten.
+
+Dat geeft twee dingen gratis:
+
+- **Jouw lijstje** — de openstaande regels van je eigen huishouden, om op een
+  rustig moment af te werken
+- **Het effect voor anderen** — los jij `LIDL PIKANTE SALAMI 100G` op, dan
+  verdwijnt die regel ook uit de wachtrij van iedereen die hem nog open had
+  staan. Alleen nog niet bevestigde regels worden zo bijgewerkt; een bevestigde
+  bon verandert nooit met terugwerkende kracht.
+
 ### Een product zelf aanmaken
 
 Open Food Facts is een **voorzet, geen voorwaarde**. Het vult velden vooraf in
@@ -686,6 +747,8 @@ server/api/
   products.post.ts                zelf een product aanmaken
   products/[id].patch.ts          naam of merk corrigeren, met revisie
   products/[id]/image.post.ts     eigen productfoto uploaden
+  aliases/[id].patch.ts           een alias corrigeren of losmaken, met revisie
+  receipt-lines/[id]/resolve.post.ts   onherkende regel koppelen aan een product
   aliases.post.ts                 handmatig een alias instellen
   recipes/suggest.post.ts         voorraad -> Claude -> voorstellen
   reports.post.ts                 rapporteren
@@ -740,6 +803,25 @@ naam als `product_translation` in de juiste locale landt.
 Aliassen hebben hier geen last van: die bewaren ruwe bontekst per keten, en
 dezelfde keten in een ander taalgebied krijgt gewoon zijn eigen aliassen.
 
+### Barcodes scannen in de browser
+
+De barcodescanner is de belangrijkste manier om een onherkende regel op te
+lossen, dus die moet op elke telefoon werken. Dat is precies waar een PWA het
+lastig heeft:
+
+- **`BarcodeDetector`** is ingebouwd in Chrome op Android en kost niets. Snel,
+  accuraat, geen extra code.
+- **Safari op iOS ondersteunt het niet.** Daar is een WebAssembly-lezer
+  (`zxing-wasm`) nodig die de camerabeelden zelf decodeert. Dat is geen
+  randgeval maar ongeveer de helft van de gebruikers, dus de fallback is de
+  hoofdweg en niet een vangnet.
+- **Handmatig intikken** blijft altijd mogelijk. Beschadigde en gekreukte
+  verpakkingen bestaan, en dertien cijfers overtypen is sneller dan drie keer
+  opnieuw richten.
+
+De gedecodeerde GTIN wordt server-side opgezocht, nooit rechtstreeks vanuit de
+client — anders loopt de Open Food Facts-cache en het quotum eromheen.
+
 ### Offline
 
 De voorraadlijst moet werken zonder netwerk — je staat in de kelder of bij de
@@ -788,6 +870,11 @@ beslissen bij de implementatie.
 staat, en dat is op iOS historisch wankel. "Je yoghurt vervalt morgen" krijgt
 daarom e-mail als terugvaloptie. Als push essentieel blijkt, is dat het
 sterkste argument om later alsnog naar Expo te gaan.
+
+**Barcodescannen op iOS.** `BarcodeDetector` ontbreekt in Safari, dus daar
+draait alles op een WebAssembly-lezer. Die is trager en gevoeliger voor slecht
+licht, terwijl het scannen juist de vlotste weg naar een opgeloste regel hoort
+te zijn. Vroeg testen op een echte iPhone, niet pas bij de oplevering.
 
 **Koude start van de catalogus.** Op dag één is de databank leeg en doen de
 eerste gebruikers al het werk. Te verzachten door de catalogus vooraf te vullen
