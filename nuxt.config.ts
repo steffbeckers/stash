@@ -23,9 +23,9 @@ export default defineNuxtConfig({
       callback: '/confirm',
       exclude: [
         '/', '/nl', '/fr',
-        '/login', '/confirm',
-        '/nl/login', '/nl/confirm',
-        '/fr/login', '/fr/confirm',
+        '/login', '/confirm', '/invite/*',
+        '/nl/login', '/nl/confirm', '/nl/invite/*',
+        '/fr/login', '/fr/confirm', '/fr/invite/*',
       ],
     },
   },

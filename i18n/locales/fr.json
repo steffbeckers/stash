@@ -29,5 +29,16 @@
     "start": "Créer",
     "joinTitle": "Rejoindre un ménage",
     "joinHelp": "Quelqu'un peut vous envoyer un lien d'invitation."
+  },
+  "invite": {
+    "joining": "Adhésion en cours…",
+    "success": "Vous avez rejoint {name}.",
+    "failed": "Cette invitation n'est plus valable.",
+    "create": "Créer un lien d'invitation",
+    "copy": "Copier le lien",
+    "copied": "Copié",
+    "revoke": "Révoquer",
+    "expiresOn": "Valable jusqu'au {date}",
+    "usesLeft": "Encore {count} utilisations"
   }
 }

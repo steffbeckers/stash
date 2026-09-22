@@ -29,5 +29,16 @@
     "start": "Starten",
     "joinTitle": "Word lid van een huishouden",
     "joinHelp": "Iemand kan je een uitnodigingslink sturen."
+  },
+  "invite": {
+    "joining": "Bezig met lid worden…",
+    "success": "Je bent lid geworden van {name}.",
+    "failed": "Deze uitnodiging is niet meer geldig.",
+    "create": "Uitnodigingslink maken",
+    "copy": "Link kopiëren",
+    "copied": "Gekopieerd",
+    "revoke": "Intrekken",
+    "expiresOn": "Geldig tot {date}",
+    "usesLeft": "Nog {count} keer te gebruiken"
   }
 }

@@ -29,5 +29,16 @@
     "start": "Start",
     "joinTitle": "Join a household",
     "joinHelp": "Someone can send you an invitation link."
+  },
+  "invite": {
+    "joining": "Joining household…",
+    "success": "You have joined {name}.",
+    "failed": "This invitation is no longer valid.",
+    "create": "Create invitation link",
+    "copy": "Copy link",
+    "copied": "Copied",
+    "revoke": "Revoke",
+    "expiresOn": "Valid until {date}",
+    "usesLeft": "{count} uses left"
   }
 }
