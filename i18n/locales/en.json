@@ -6,5 +6,13 @@
   "nav": {
     "inventory": "Inventory",
     "settings": "Settings"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "email": "Email address",
+    "sendLink": "Send me a link",
+    "linkSent": "Check your inbox — we sent you a sign-in link.",
+    "signOut": "Sign out",
+    "error": "Something went wrong. Please try again."
   }
 }

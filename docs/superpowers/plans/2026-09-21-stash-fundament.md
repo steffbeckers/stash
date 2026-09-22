@@ -744,6 +744,8 @@ git commit -m "feat: meertaligheid met en, nl en fr, met een test die sleutels g
 - Modify: `nuxt.config.ts`
 - Create: `app/pages/login.vue`
 - Create: `app/pages/confirm.vue`
+- Create: `app/pages/app.vue`
+- Modify: `app/pages/index.vue` (wordt de publieke landingspagina)
 - Modify: `i18n/locales/en.json`, `i18n/locales/nl.json`, `i18n/locales/fr.json`
 - Create: `e2e/login.spec.ts`
 - Create: `playwright.config.ts`
@@ -776,7 +778,12 @@ En als eigen blok:
     redirectOptions: {
       login: '/login',
       callback: '/confirm',
-      exclude: ['/login', '/confirm', '/nl/login', '/nl/confirm', '/fr/login', '/fr/confirm'],
+      exclude: [
+        '/', '/nl', '/fr',
+        '/login', '/confirm',
+        '/nl/login', '/nl/confirm',
+        '/fr/login', '/fr/confirm',
+      ],
     },
   },
 ```
@@ -797,6 +804,12 @@ Voeg toe aan alle drie de locale-bestanden, binnen het hoofdobject.
     "linkSent": "Check your inbox — we sent you a sign-in link.",
     "signOut": "Sign out",
     "error": "Something went wrong. Please try again."
+  },
+  "landing": {
+    "getStarted": "Get started"
+  },
+  "appHome": {
+    "title": "Your household"
   }
 ```
 
@@ -810,6 +823,12 @@ Voeg toe aan alle drie de locale-bestanden, binnen het hoofdobject.
     "linkSent": "Kijk in je mailbox — we stuurden je een inloglink.",
     "signOut": "Uitloggen",
     "error": "Er ging iets mis. Probeer het opnieuw."
+  },
+  "landing": {
+    "getStarted": "Aan de slag"
+  },
+  "appHome": {
+    "title": "Je huishouden"
   }
 ```
 
@@ -823,8 +842,66 @@ Voeg toe aan alle drie de locale-bestanden, binnen het hoofdobject.
     "linkSent": "Consultez votre boîte mail — nous vous avons envoyé un lien de connexion.",
     "signOut": "Se déconnecter",
     "error": "Une erreur s'est produite. Veuillez réessayer."
+  },
+  "landing": {
+    "getStarted": "Commencer"
+  },
+  "appHome": {
+    "title": "Votre ménage"
   }
 ```
+
+- [ ] **Step 3b: De landingspagina en de app-startpagina scheiden**
+
+De homepage blijft publiek. Wie op Stash belandt krijgt uitleg, geen
+inlogscherm; pas wie besluit hem te gebruiken klikt door. De app zelf leeft
+onder `/app`.
+
+Houd de landingspagina hier bewust dun — dit is een authenticatietaak, geen
+marketingtaak. Het verhaal komt later.
+
+Replace `app/pages/index.vue`:
+
+```vue
+<script setup lang="ts">
+const { t } = useI18n()
+const localePath = useLocalePath()
+const user = useSupabaseUser()
+
+// Dagelijkse gebruikers horen de uitlegpagina niet elke keer te zien.
+watch(user, (value) => {
+  if (value) navigateTo(localePath('/app'))
+}, { immediate: true })
+</script>
+
+<template>
+  <UContainer class="py-16 text-center">
+    <h1 class="text-4xl font-bold">{{ t('app.name') }}</h1>
+    <p class="mt-3 text-lg text-muted">{{ t('app.tagline') }}</p>
+    <UButton class="mt-8" size="lg" :to="localePath('/login')">
+      {{ t('landing.getStarted') }}
+    </UButton>
+  </UContainer>
+</template>
+```
+
+Create `app/pages/app.vue`:
+
+```vue
+<script setup lang="ts">
+const { t } = useI18n()
+</script>
+
+<template>
+  <UContainer class="py-12">
+    <h1 class="text-2xl font-bold">{{ t('appHome.title') }}</h1>
+  </UContainer>
+</template>
+```
+
+Task 7 bouwt deze pagina uit tot de echte app-start; hier is hij alleen de
+afgeschermde tegenhanger van de publieke landingspagina, zodat er iets bestaat
+om de afscherming tegen te testen.
 
 - [ ] **Step 4: De falende e2e-test schrijven**
 
@@ -862,8 +939,14 @@ Create `e2e/login.spec.ts`:
 ```ts
 import { test, expect } from '@playwright/test'
 
-test('een afgeschermde pagina stuurt je naar inloggen', async ({ page }) => {
+test('de homepage blijft publiek', async ({ page }) => {
   await page.goto('/')
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('link', { name: 'Get started' })).toBeVisible()
+})
+
+test('een afgeschermde pagina stuurt je naar inloggen', async ({ page }) => {
+  await page.goto('/app')
   await expect(page).toHaveURL(/\/login/)
 })
 
@@ -950,7 +1033,7 @@ const user = useSupabaseUser()
 const localePath = useLocalePath()
 
 watch(user, (value) => {
-  if (value) navigateTo(localePath('/'))
+  if (value) navigateTo(localePath('/app'))
 }, { immediate: true })
 </script>
 
@@ -1321,7 +1404,7 @@ git commit -m "feat: huishoudens met RLS en de hulpfuncties voor lidmaatschap"
 - Create: `app/composables/useHousehold.ts`
 - Create: `supabase/migrations/<timestamp>_create_household_rpc.sql`
 - Modify: `i18n/locales/en.json`, `i18n/locales/nl.json`, `i18n/locales/fr.json`
-- Modify: `app/pages/index.vue`
+- Modify: `app/pages/app.vue`
 - Test: `test/db/create-household.test.ts`
 - Test: `e2e/onboarding.spec.ts`
 
@@ -1570,7 +1653,7 @@ async function start() {
   error.value = ''
   try {
     await create(name.value)
-    await navigateTo(localePath('/'))
+    await navigateTo(localePath('/app'))
   } catch {
     error.value = t('auth.error')
   } finally {
@@ -1613,9 +1696,12 @@ async function start() {
 </template>
 ```
 
-- [ ] **Step 8: De startpagina laten doorsturen wanneer er geen huishouden is**
+- [ ] **Step 8: De app-startpagina laten doorsturen wanneer er geen huishouden is**
 
-Replace `app/pages/index.vue`:
+Dit is `app/pages/app.vue`, niet `index.vue` — die laatste is de publieke
+landingspagina uit Task 4 en blijft ongemoeid.
+
+Replace `app/pages/app.vue`:
 
 ```vue
 <script setup lang="ts">
@@ -1623,19 +1709,30 @@ const { t } = useI18n()
 const localePath = useLocalePath()
 const { households, activeId, refresh } = useHousehold()
 
-await refresh()
+const ready = ref(false)
 
-if (households.value.length === 0) {
-  await navigateTo(localePath('/onboarding'))
-}
+// In onMounted, niet op top-level await: activeId komt uit localStorage en is
+// tijdens SSR altijd null. Doorsturen hoort ook een clientbeslissing te zijn,
+// anders stuurt de server iemand weg op basis van halve informatie.
+onMounted(async () => {
+  await refresh()
+  if (households.value.length === 0) {
+    await navigateTo(localePath('/onboarding'))
+    return
+  }
+  ready.value = true
+})
 
 const active = computed(() => households.value.find((h) => h.id === activeId.value))
 </script>
 
 <template>
   <UContainer class="py-12">
-    <h1 class="text-3xl font-bold">{{ t('app.name') }}</h1>
-    <p class="mt-2 text-lg text-muted">{{ active?.name ?? t('app.tagline') }}</p>
+    <UProgress v-if="!ready" animation="carousel" />
+    <template v-else>
+      <h1 class="text-3xl font-bold">{{ t('app.name') }}</h1>
+      <p class="mt-2 text-lg text-muted">{{ active?.name }}</p>
+    </template>
   </UContainer>
 </template>
 ```
@@ -1683,11 +1780,18 @@ test('een nieuwe gebruiker belandt op onboarding en kan een huishouden starten',
   await expect(page.getByText('Testhuis')).toBeVisible()
 })
 
-test('een gebruiker zonder huishouden wordt vanaf de startpagina doorgestuurd', async ({ page }) => {
+test('een gebruiker zonder huishouden wordt vanaf de app-startpagina doorgestuurd', async ({ page }) => {
   await signIn(page, `e2e-redirect-${Date.now()}@example.com`)
 
-  await page.goto('/')
+  await page.goto('/app')
   await expect(page).toHaveURL(/\/onboarding/)
+})
+
+test('een ingelogde gebruiker op de landingspagina belandt in de app', async ({ page }) => {
+  await signIn(page, `e2e-landing-${Date.now()}@example.com`)
+
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/(app|onboarding)/)
 })
 ```
 
@@ -2081,7 +2185,7 @@ onMounted(async () => {
 
     <UAlert v-else color="error" :description="t('invite.failed')" />
 
-    <UButton v-if="state !== 'joining'" class="mt-6" :to="localePath('/')" block>
+    <UButton v-if="state !== 'joining'" class="mt-6" :to="localePath('/app')" block>
       {{ t('app.name') }}
     </UButton>
   </UContainer>
@@ -2189,6 +2293,7 @@ Pas het `supabase`-blok in `nuxt.config.ts` aan:
       login: '/login',
       callback: '/confirm',
       exclude: [
+        '/', '/nl', '/fr',
         '/login', '/confirm', '/invite/*',
         '/nl/login', '/nl/confirm', '/nl/invite/*',
         '/fr/login', '/fr/confirm', '/fr/invite/*',

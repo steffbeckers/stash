@@ -6,5 +6,13 @@
   "nav": {
     "inventory": "Stock",
     "settings": "Paramètres"
+  },
+  "auth": {
+    "signIn": "Se connecter",
+    "email": "Adresse e-mail",
+    "sendLink": "Envoyez-moi un lien",
+    "linkSent": "Consultez votre boîte mail — nous vous avons envoyé un lien de connexion.",
+    "signOut": "Se déconnecter",
+    "error": "Une erreur s'est produite. Veuillez réessayer."
   }
 }
