@@ -472,7 +472,8 @@ Verwacht: PASS, beide tests.
 
 - [ ] **Step 7: Databasetests een eigen commando geven**
 
-`test/db` draait tegen een echte database en heeft de Node-omgeving nodig, niet de Nuxt-omgeving. Splits daarom de configuratie.
+`test/db` heeft een draaiende Docker en een lokale database nodig; `npm test`
+moet ook zonder dat kunnen draaien. Splits daarom de configuratie.
 
 Create `vitest.db.config.ts`:
 
@@ -488,14 +489,22 @@ export default defineConfig({
 })
 ```
 
-Pas `vitest.config.ts` aan zodat hij `test/db` overslaat:
+Pas `vitest.config.ts` aan zodat hij `test/db` overslaat. **Let op:** Task 1
+heeft dit bestand bewust op `defineConfig` met `environment: 'node'` gezet, met
+een toelichting erboven. Behoud beide — voeg alleen `exclude` toe en raak de
+omgeving niet aan:
 
 ```ts
-import { defineVitestConfig } from '@nuxt/test-utils/config'
+import { defineConfig } from 'vitest/config'
 
-export default defineVitestConfig({
+// health.test.ts gebruikt @nuxt/test-utils/e2e (setup + $fetch tegen een
+// echt draaiende server), niet het mounten van componenten. E2e-tests
+// moeten een gewoon `environment: 'node'`-project zijn en mogen
+// defineVitestConfig niet gebruiken: die combinatie breekt het bundelen
+// van testbestanden (nuxt/test-utils#1490).
+export default defineConfig({
   test: {
-    environment: 'nuxt',
+    environment: 'node',
     exclude: ['test/db/**', 'node_modules/**', 'e2e/**'],
   },
 })
@@ -509,6 +518,11 @@ Voeg toe aan `package.json` scripts:
 ```
 
 `fileParallelism: false` is belangrijk: databasetests delen één database en zouden elkaar anders omvergooien.
+
+**Vereiste vóór je begint:** Docker Desktop moet draaien. `npx supabase start`
+faalt anders met een verbindingsfout naar de Docker-daemon. Draait Docker niet
+en kan jij hem niet starten, rapporteer dan BLOCKED — dit is een
+omgevingsvereiste, geen taakprobleem.
 
 - [ ] **Step 8: Beide testsuites draaien**
 
