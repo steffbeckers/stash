@@ -2916,6 +2916,14 @@ $$;
 create trigger prevent_last_owner_removal_trigger
   before delete on household_member
   for each row execute function prevent_last_owner_removal();
+
+-- `revoke all ... from public` haalt Supabase's eigen directe grant aan anon
+-- er niet af. Taak 8 ontdekte dat met een has_function_privilege-test:
+-- create_invite en accept_invite staan goed, create_household uit taak 7 niet.
+-- Niet uitbuitbaar, want de functie weigert zonder ingelogde gebruiker, maar
+-- de verdediging in de diepte werkt niet zoals bedoeld en het is inconsistent
+-- met de rest.
+revoke execute on function create_household(text) from anon;
 ```
 
 Twee dingen om te weten bij deze migratie:
@@ -2945,6 +2953,18 @@ Verwacht: PASS, alle vijf, plus alle eerdere databasetests.
 Voeg toe aan `test/db/permissions.test.ts`:
 
 ```ts
+  it('anon mag geen enkele huishoudfunctie aanroepen', async () => {
+    await withTx(async (tx) => {
+      const [row] = await tx<{ f: string; anon: boolean; auth: boolean }[]>`
+        select 'create_household' as f,
+               has_function_privilege('anon', 'create_household(text)', 'execute') as anon,
+               has_function_privilege('authenticated', 'create_household(text)', 'execute') as auth
+      `
+      expect(row!.anon).toBe(false)
+      expect(row!.auth).toBe(true)
+    })
+  })
+
   it('een huishouden opheffen werkt ondanks de eigenaarstrigger', async () => {
     const userId = await createUser('opheffen@example.com')
     await withTx(async (tx) => {
