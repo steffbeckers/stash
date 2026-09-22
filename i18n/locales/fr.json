@@ -1,0 +1,10 @@
+{
+  "app": {
+    "name": "Stash",
+    "tagline": "Sachez ce que vous avez chez vous"
+  },
+  "nav": {
+    "inventory": "Stock",
+    "settings": "Paramètres"
+  }
+}

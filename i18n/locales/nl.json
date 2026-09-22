@@ -1,0 +1,10 @@
+{
+  "app": {
+    "name": "Stash",
+    "tagline": "Weet wat je in huis hebt"
+  },
+  "nav": {
+    "inventory": "Voorraad",
+    "settings": "Instellingen"
+  }
+}
