@@ -20,5 +20,14 @@
   },
   "appHome": {
     "title": "Your household"
+  },
+  "onboarding": {
+    "title": "Get started",
+    "startTitle": "Start a household",
+    "startHelp": "Track what you have at home, on your own or with others.",
+    "name": "Household name",
+    "start": "Start",
+    "joinTitle": "Join a household",
+    "joinHelp": "Someone can send you an invitation link."
   }
 }

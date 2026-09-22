@@ -20,5 +20,14 @@
   },
   "appHome": {
     "title": "Je huishouden"
+  },
+  "onboarding": {
+    "title": "Aan de slag",
+    "startTitle": "Start een huishouden",
+    "startHelp": "Hou bij wat je in huis hebt, alleen of samen met anderen.",
+    "name": "Naam van het huishouden",
+    "start": "Starten",
+    "joinTitle": "Word lid van een huishouden",
+    "joinHelp": "Iemand kan je een uitnodigingslink sturen."
   }
 }
