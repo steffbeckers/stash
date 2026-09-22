@@ -3015,9 +3015,333 @@ git commit -m "feat: rechtenmodel dichtgetimmerd met triggers voor rol en eigena
 
 ---
 
+### Task 11: De uitnodigingsflow werkend maken
+
+Taak 8 bouwde uitnodigingen, maar de functie heeft aan geen van beide kanten een
+werkende ingang. De review stelde twee gaten vast die allebei buiten taak 8's
+bestandenlijst vielen:
+
+- De uitnodigingspagina stuurt een uitgelogde bezoeker naar
+  `/login?redirect=/invite/<token>`, maar `login.vue` en `confirm.vue` lezen die
+  parameter nooit. Een nieuwe gebruiker — de meest voorkomende bezoeker van een
+  uitnodigingslink — logt in en belandt op `/app`, zonder foutmelding en zonder
+  lidmaatschap.
+- `HouseholdInvites.vue` bestaat maar wordt door geen enkele pagina gebruikt, dus
+  een eigenaar kan niet eens een link aanmaken.
+
+**Files:**
+- Modify: `app/pages/login.vue`
+- Modify: `app/pages/confirm.vue`
+- Modify: `app/components/HouseholdInvites.vue`
+- Modify: `e2e/onboarding.spec.ts` (helpers exporteren)
+- Create: `app/pages/settings/household.vue`
+- Create: `e2e/invite.spec.ts`
+- Modify: `i18n/locales/en.json`, `i18n/locales/nl.json`, `i18n/locales/fr.json`
+
+**Interfaces:**
+- Consumes: `useHousehold()` uit Task 7, `create_invite` en `accept_invite` uit Task 8
+- Produces: geen nieuwe interfaces; deze taak maakt bestaande werkend
+
+- [ ] **Step 1: De helpers uit Task 7 exporteerbaar maken**
+
+`e2e/onboarding.spec.ts` bevat `signIn()` en de Mailpit-hulpfunctie die de
+magic link ophaalt. Zet `export` voor allebei, zodat `e2e/invite.spec.ts` ze kan
+importeren. Kopieer ze niet — twee versies van een inloghelper lopen gegarandeerd
+uit elkaar.
+
+Wijzig niets aan hun werking.
+
+- [ ] **Step 2: De falende e2e-test schrijven**
+
+Create `e2e/invite.spec.ts`:
+
+```ts
+import { test, expect } from '@playwright/test'
+import { signIn, readLatestMagicLink } from './onboarding.spec'
+
+test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, browser }) => {
+  // Eigenaar maakt een huishouden en een uitnodigingslink.
+  await signIn(page, `e2e-owner-${Date.now()}@example.com`)
+  await page.goto('/onboarding')
+  await page.getByLabel('Household name').fill('Uitnodigingshuis')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByText('Uitnodigingshuis')).toBeVisible()
+
+  await page.goto('/settings/household')
+  await page.getByRole('button', { name: 'Create invitation link' }).click()
+  const link = await page.getByRole('textbox', { name: 'Invitation link' }).inputValue()
+  expect(link).toContain('/invite/')
+
+  // Een verse browsercontext: iemand die nergens is ingelogd.
+  const guestContext = await browser.newContext()
+  const guest = await guestContext.newPage()
+  const guestEmail = `e2e-guest-${Date.now()}@example.com`
+
+  await guest.goto(link)
+  await expect(guest).toHaveURL(/\/login/)
+
+  await guest.getByLabel(/email/i).fill(guestEmail)
+  await guest.getByRole('button', { name: /link/i }).click()
+  await expect(guest.getByText(/inbox/i)).toBeVisible()
+
+  // De echte magic link uit Mailpit hoort terug te leiden naar de uitnodiging,
+  // niet naar /app.
+  const magicLink = await readLatestMagicLink(guestEmail)
+  await guest.goto(magicLink)
+
+  await expect(guest.getByText('Uitnodigingshuis')).toBeVisible()
+  await guestContext.close()
+})
+```
+
+- [ ] **Step 3: De test draaien en zien dat hij faalt**
+
+```bash
+npm run test:e2e -- invite
+```
+
+Verwacht: FAIL. `/settings/household` bestaat niet, dus de knop wordt nooit
+gevonden.
+
+- [ ] **Step 4: De redirect door login.vue heen dragen**
+
+Voeg in `app/pages/login.vue` bovenaan `<script setup>` toe:
+
+```ts
+const route = useRoute()
+
+// Alleen interne paden. Zonder deze controle kan iemand
+// ?redirect=https://kwaadaardig.example in een link zetten en jouw inlogpagina
+// gebruiken om mensen naar een phishingsite te sturen.
+const redirectTo = computed(() => {
+  const value = route.query.redirect
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+    ? value
+    : null
+})
+```
+
+En vervang in `submit()` de aanroep van `signInWithOtp` door:
+
+```ts
+  const target = new URL('/confirm', window.location.origin)
+  if (redirectTo.value) target.searchParams.set('redirect', redirectTo.value)
+
+  const { error: authError } = await supabase.auth.signInWithOtp({
+    email: email.value,
+    options: { emailRedirectTo: target.toString() },
+  })
+```
+
+De controle op `startsWith('/')` én niet `'//'` is niet optioneel: `//evil.com`
+is een protocol-relatieve URL en gaat gewoon naar buiten.
+
+- [ ] **Step 5: De redirect consumeren in confirm.vue**
+
+Replace `app/pages/confirm.vue`:
+
+```vue
+<script setup lang="ts">
+const user = useSupabaseUser()
+const route = useRoute()
+const localePath = useLocalePath()
+
+// Zelfde controle als in login.vue: een query-parameter is invoer van buiten,
+// ook als hij van onze eigen inlogpagina lijkt te komen.
+const target = computed(() => {
+  const value = route.query.redirect
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+    ? value
+    : localePath('/app')
+})
+
+watch(user, (value) => {
+  if (value) navigateTo(target.value)
+}, { immediate: true })
+</script>
+
+<template>
+  <UContainer class="py-12">
+    <UProgress animation="carousel" />
+  </UContainer>
+</template>
+```
+
+- [ ] **Step 6: Vertaalsleutels toevoegen**
+
+`en.json`:
+
+```json
+  "householdSettings": {
+    "title": "Household",
+    "invitations": "Invitations",
+    "error": "That did not work. Please try again."
+  }
+```
+
+`nl.json`:
+
+```json
+  "householdSettings": {
+    "title": "Huishouden",
+    "invitations": "Uitnodigingen",
+    "error": "Dat is niet gelukt. Probeer het opnieuw."
+  }
+```
+
+`fr.json`:
+
+```json
+  "householdSettings": {
+    "title": "Menage",
+    "invitations": "Invitations",
+    "error": "Cela a echoue. Veuillez reessayer."
+  }
+```
+
+De Franse tekst staat hier zonder accenten om kopieerfouten te vermijden; zet in
+het bestand zelf de juiste accenten: `Ménage`, `Cela a échoué. Veuillez
+réessayer.`
+
+- [ ] **Step 7: De instellingenpagina maken**
+
+Create `app/pages/settings/household.vue`:
+
+```vue
+<script setup lang="ts">
+const { t } = useI18n()
+const { activeId, refresh } = useHousehold()
+
+const ready = ref(false)
+
+onMounted(async () => {
+  await refresh()
+  ready.value = true
+})
+</script>
+
+<template>
+  <UContainer class="max-w-lg py-12">
+    <h1 class="text-2xl font-bold">{{ t('householdSettings.title') }}</h1>
+
+    <section class="mt-8">
+      <h2 class="mb-3 font-semibold">{{ t('householdSettings.invitations') }}</h2>
+      <UProgress v-if="!ready" animation="carousel" />
+      <HouseholdInvites v-else-if="activeId" :household-id="activeId" />
+    </section>
+  </UContainer>
+</template>
+```
+
+- [ ] **Step 8: Foutafhandeling en een vindbaar linkveld in HouseholdInvites**
+
+`create()` en `revoke()` gooien nu elke fout stilletjes weg. Voeg bovenaan
+`<script setup>` toe:
+
+```ts
+const error = ref('')
+```
+
+Vervang beide functies:
+
+```ts
+async function create() {
+  pending.value = true
+  error.value = ''
+  const { error: rpcError } = await supabase.rpc('create_invite', {
+    target: props.householdId,
+    valid_days: 7,
+    uses: 5,
+  })
+  if (rpcError) error.value = t('householdSettings.error')
+  else await load()
+  pending.value = false
+}
+
+async function revoke(id: string) {
+  error.value = ''
+  const { error: deleteError } = await supabase.from('household_invite').delete().eq('id', id)
+  if (deleteError) error.value = t('householdSettings.error')
+  else await load()
+}
+```
+
+Toon de fout in de template, direct onder de aanmaakknop:
+
+```vue
+    <UAlert v-if="error" color="error" :description="error" />
+```
+
+Vervang de `<p>` met de link door een leesbaar invoerveld met een toegankelijk
+label, zodat een schermlezer hem benoemt en de e2e-test hem vindt:
+
+```vue
+          <UInput
+            :model-value="linkFor(invite.token)"
+            aria-label="Invitation link"
+            readonly
+            class="w-full font-mono text-xs"
+          />
+```
+
+- [ ] **Step 9: De test draaien en zien dat hij slaagt**
+
+```bash
+npm run test:e2e
+```
+
+Verwacht: PASS, alle bestaande tests plus de nieuwe uitnodigingsflow.
+
+- [ ] **Step 10: De open-redirectbescherming apart testen**
+
+Dit is beveiligingsgedrag en krijgt dus een eigen test. Voeg toe aan
+`e2e/invite.spec.ts`:
+
+```ts
+test('een externe redirect wordt genegeerd', async ({ page }) => {
+  const email = `e2e-redirect-${Date.now()}@example.com`
+
+  await page.goto('/login?redirect=https://example.com/phishing')
+  await page.getByLabel(/email/i).fill(email)
+  await page.getByRole('button', { name: /link/i }).click()
+  await expect(page.getByText(/inbox/i)).toBeVisible()
+
+  const magicLink = await readLatestMagicLink(email)
+  expect(magicLink).not.toContain('example.com')
+
+  // En protocol-relatief mag evenmin.
+  const email2 = `e2e-redirect2-${Date.now()}@example.com`
+  await page.goto('/login?redirect=//example.com/phishing')
+  await page.getByLabel(/email/i).fill(email2)
+  await page.getByRole('button', { name: /link/i }).click()
+  await expect(page.getByText(/inbox/i)).toBeVisible()
+
+  const magicLink2 = await readLatestMagicLink(email2)
+  expect(magicLink2).not.toContain('example.com')
+})
+```
+
+```bash
+npm run test:e2e -- invite
+```
+
+Verwacht: PASS, beide tests.
+
+- [ ] **Step 11: Committen**
+
+```bash
+git add -A
+git commit -m "feat: uitnodigingsflow werkend van link tot lidmaatschap"
+```
+
+---
+
 ## Wat je na dit plan hebt
 
 Een uitgerolde app op Cloudflare Workers waarin je kan inloggen met een magic link, een huishouden kan starten of via een uitnodigingslink lid worden, bewaarplaatsen kan beheren, en waarin de scheiding tussen huishoudens bewezen dicht is. Drietalig, met een test die de locales gelijk houdt.
+
+Uitnodigen werkt end-to-end: een eigenaar maakt een link, een wildvreemde
+klikt hem, logt in en is lid — zonder de uitnodiging onderweg te verliezen.
 
 Nog geen producten, geen voorraad, geen bonnen. Dat is plan 2 en verder.
 
