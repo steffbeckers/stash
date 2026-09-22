@@ -2010,6 +2010,23 @@ describe('uitnodigingen', () => {
     })
   })
 
+  // Deze test dekt een gat dat de review van taak 7 blootlegde: de
+  // `revoke all` / `grant execute`-regels onder aan de migratie worden door
+  // geen enkele test aangeraakt, omdat alle andere tests als superuser draaien.
+  // Verwijder die grant en de app breekt voor echte gebruikers terwijl de
+  // suite groen blijft.
+  it('alleen ingelogde gebruikers mogen de uitnodigingsfuncties aanroepen', async () => {
+    await withTx(async (tx) => {
+      const [row] = await tx<{ can_auth: boolean; can_anon: boolean }[]>`
+        select
+          has_function_privilege('authenticated', 'create_invite(uuid, int, int)', 'execute') as can_auth,
+          has_function_privilege('anon',          'create_invite(uuid, int, int)', 'execute') as can_anon
+      `
+      expect(row!.can_auth).toBe(true)
+      expect(row!.can_anon).toBe(false)
+    })
+  })
+
   it('een gewoon lid ziet de uitnodigingen van het huishouden niet', async () => {
     const owner = await createUser('eig6@example.com')
     const member = await createUser('lid6@example.com')
