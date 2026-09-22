@@ -1503,6 +1503,51 @@ describe('create_household', () => {
     })
   })
 
+  // De twee tests hieronder vullen een gat uit taak 6: daar was de isolatie van
+  // household UPDATE/DELETE en household_member SELECT alleen door analyse
+  // vastgesteld, niet door een test. Hier kan het wel, want create_household
+  // geeft een tweede huishouden met lidmaatschap in een paar regels.
+
+  it('verbergt de ledenlijst van een ander huishouden', async () => {
+    const mine = await createUser('mijn-leden@example.com')
+    const theirs = await createUser('hun-leden@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, theirs)
+      await tx`select create_household('Hun huis')`
+
+      await actAs(tx, mine)
+      await enableRls(tx)
+      const rows = await tx`select user_id from household_member`
+      expect(rows.length).toBe(0)
+    })
+  })
+
+  it('laat een buitenstaander een huishouden niet hernoemen of verwijderen', async () => {
+    const outsider = await createUser('buitenstaander@example.com')
+    const owner = await createUser('eigenaar7@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Hun huis')`
+      const id = hh!.create_household
+
+      await actAs(tx, outsider)
+      await enableRls(tx)
+
+      // RLS geeft geen fout maar raakt nul rijen; dat is het bewijs.
+      const updated = await tx`update household set name = 'gekaapt' where id = ${id}`
+      expect(updated.count).toBe(0)
+
+      const deleted = await tx`delete from household where id = ${id}`
+      expect(deleted.count).toBe(0)
+
+      await tx`reset role`
+      const [row] = await tx<{ name: string }[]>`select name from household where id = ${id}`
+      expect(row!.name).toBe('Hun huis')
+    })
+  })
+
   it('weigert een oproep zonder ingelogde gebruiker', async () => {
     await withTx(async (tx) => {
       await tx`select set_config('request.jwt.claim.sub', '', true)`
