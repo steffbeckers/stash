@@ -756,7 +756,7 @@ git commit -m "feat: meertaligheid met en, nl en fr, met een test die sleutels g
 
 ```bash
 npm install @nuxtjs/supabase
-npm install -D @playwright/test dotenv
+npm install -D @playwright/test
 npx playwright install chromium
 ```
 
@@ -828,12 +828,22 @@ Voeg toe aan alle drie de locale-bestanden, binnen het hoofdobject.
 
 - [ ] **Step 4: De falende e2e-test schrijven**
 
-Create `playwright.config.ts`. De `dotenv`-import staat er vanaf het begin in,
-want Task 7 heeft `SUPABASE_URL` en `SUPABASE_SERVICE_KEY` nodig in de tests:
+Create `playwright.config.ts`. Het laden van `.env` staat er vanaf het begin
+in, want Task 7 heeft `SUPABASE_URL` en `SUPABASE_SERVICE_KEY` nodig in de
+tests. Gebruik dezelfde aanpak als `test/db/helpers.ts` uit Task 2 — de
+ingebouwde `process.loadEnvFile()`, geen extra afhankelijkheid:
 
 ```ts
-import 'dotenv/config'
 import { defineConfig } from '@playwright/test'
+
+// Zelfde reden als in test/db/helpers.ts: de testrunner laadt .env niet
+// vanzelf. Een ontbrekend bestand negeren we; de tests falen dan alsnog
+// met een duidelijke melding over de ontbrekende variabele.
+try {
+  process.loadEnvFile()
+} catch {
+  // .env ontbreekt of is onleesbaar
+}
 
 export default defineConfig({
   testDir: './e2e',
@@ -1697,7 +1707,7 @@ Verwacht: PASS, beide tests, plus de twee uit Task 4.
 Faalt `generateLink` op de vorm van het antwoord, log dan `data.properties` en
 gebruik het veld dat de actielink bevat. Faalt hij op ontbrekende
 omgevingsvariabelen, controleer dan dat `.env` bestaat en `SUPABASE_SERVICE_KEY`
-bevat — `playwright.config.ts` laadt het via `dotenv/config`.
+bevat — `playwright.config.ts` laadt het via `process.loadEnvFile()`.
 
 - [ ] **Step 11: Committen**
 
