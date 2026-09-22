@@ -9,6 +9,12 @@ dist
 # Cloudflare / Wrangler
 .wrangler
 
+# Playwright
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
 # Node dependencies
 node_modules
 

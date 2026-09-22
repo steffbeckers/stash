@@ -14,5 +14,11 @@
     "linkSent": "Consultez votre boîte mail — nous vous avons envoyé un lien de connexion.",
     "signOut": "Se déconnecter",
     "error": "Une erreur s'est produite. Veuillez réessayer."
+  },
+  "landing": {
+    "getStarted": "Commencer"
+  },
+  "appHome": {
+    "title": "Votre ménage"
   }
 }

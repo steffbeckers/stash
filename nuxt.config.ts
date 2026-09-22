@@ -21,7 +21,12 @@ export default defineNuxtConfig({
     redirectOptions: {
       login: '/login',
       callback: '/confirm',
-      exclude: ['/login', '/confirm', '/nl/login', '/nl/confirm', '/fr/login', '/fr/confirm'],
+      exclude: [
+        '/', '/nl', '/fr',
+        '/login', '/confirm',
+        '/nl/login', '/nl/confirm',
+        '/fr/login', '/fr/confirm',
+      ],
     },
   },
   nitro: {

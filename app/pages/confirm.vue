@@ -3,7 +3,7 @@ const user = useSupabaseUser()
 const localePath = useLocalePath()
 
 watch(user, (value) => {
-  if (value) navigateTo(localePath('/'))
+  if (value) navigateTo(localePath('/app'))
 }, { immediate: true })
 </script>
 

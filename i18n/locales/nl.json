@@ -14,5 +14,11 @@
     "linkSent": "Kijk in je mailbox — we stuurden je een inloglink.",
     "signOut": "Uitloggen",
     "error": "Er ging iets mis. Probeer het opnieuw."
+  },
+  "landing": {
+    "getStarted": "Aan de slag"
+  },
+  "appHome": {
+    "title": "Je huishouden"
   }
 }
