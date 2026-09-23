@@ -16,7 +16,10 @@
     "test:db": "vitest run --config vitest.db.config.ts",
     "test:e2e": "playwright test",
     "test:all": "npm run test && npm run test:db",
-    "deploy": "nuxt build && wrangler deploy"
+    "deploy": "nuxt build && wrangler deploy",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "nuxt typecheck"
   },
   "dependencies": {
     "@nuxt/ui": "^4.11.1",
@@ -28,12 +31,16 @@
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
+    "@nuxt/eslint": "^1.17.0",
     "@nuxt/test-utils": "^4.3.2",
     "@playwright/test": "^1.63.0",
+    "eslint": "^10.11.0",
     "happy-dom": "^20.14.5",
     "nitro-cloudflare-dev": "^0.2.2",
     "postgres": "^3.4.9",
+    "typescript": "^6.0.3",
     "vitest": "^5.0.1",
+    "vue-tsc": "^3.3.11",
     "wrangler": "^4.136.1"
   },
   "allowScripts": {

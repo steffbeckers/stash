@@ -26,7 +26,10 @@ describe('locale-bestanden', () => {
   it('heeft geen lege vertalingen', () => {
     for (const [name, bundle] of [['nl', nl], ['fr', fr], ['en', en]] as const) {
       const empty = flatten(bundle).filter((path) => {
-        const value = path.split('.').reduce<any>((acc, key) => acc?.[key], bundle)
+        const value = path.split('.').reduce<unknown>(
+          (acc, key) => (typeof acc === 'object' && acc !== null ? (acc as Record<string, unknown>)[key] : undefined),
+          bundle as unknown,
+        )
         return typeof value === 'string' && value.trim() === ''
       })
       expect(empty, `lege vertalingen in ${name}`).toEqual([])
