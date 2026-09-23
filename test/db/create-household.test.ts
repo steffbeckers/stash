@@ -68,10 +68,17 @@ describe('create_household', () => {
       await enableRls(tx)
 
       // RLS geeft geen fout maar raakt nul rijen; dat is het bewijs.
-      const updated = await tx`update household set name = 'gekaapt' where id = ${id}`
+      //
+      // Bewust zonder WHERE: PostgreSQL past de SELECT-policy óók toe op een
+      // UPDATE of DELETE die kolommen leest. Met een `where id = ...` erbij
+      // blijft deze test groen als de schrijfpolicy op using(true) staat -
+      // dan houdt de leespolicy de buitenstaander tegen en bewijst de test
+      // niets over de policy die hij zou moeten bewaken. Nagegaan, niet
+      // aangenomen: zie de toelichting in storage-place.test.ts.
+      const updated = await tx`update household set name = 'gekaapt'`
       expect(updated.count).toBe(0)
 
-      const deleted = await tx`delete from household where id = ${id}`
+      const deleted = await tx`delete from household`
       expect(deleted.count).toBe(0)
 
       await tx`reset role`

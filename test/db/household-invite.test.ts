@@ -182,7 +182,12 @@ describe('uitnodigingen', () => {
       // Geen INSERT/UPDATE-policy op household_invite: RLS geeft hier geen
       // fout maar raakt nul rijen, net als bij de UPDATE/DELETE-voorbeelden
       // op household elders in deze suite.
-      const updated = await tx`update household_invite set uses = 0 where token = ${inv!.create_invite}`
+      //
+      // Bewust zonder WHERE, om dezelfde reden als daar: een schrijfopdracht
+      // die kolommen leest wordt mede door de SELECT-policy afgeschermd, en
+      // zou deze test groen houden ook als er een veel te ruime UPDATE-policy
+      // bij komt.
+      const updated = await tx`update household_invite set uses = 0`
       expect(updated.count).toBe(0)
 
       await tx`reset role`
