@@ -80,6 +80,22 @@ describe('create_household', () => {
     })
   })
 
+  // Bevinding 3 van de eindreview: er bestond een INSERT-policy die elke
+  // ingelogde gebruiker rechtstreeks een household-rij liet aanmaken, buiten
+  // create_household() om — zonder lidmaatschap, dus onbereikbare rommel na
+  // aanmaak. Die policy is ingetrokken; deze test bewijst dat de directe weg
+  // nu dicht is terwijl create_household() zelf (hierboven) gewoon werkt.
+  it('weigert een rechtstreekse insert buiten create_household() om', async () => {
+    const userId = await createUser('directe-insert@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      await expect(
+        tx.savepoint((sp) => sp`insert into household (name) values ('Stiekem huis')`),
+      ).rejects.toThrow()
+    })
+  })
+
   it('weigert een oproep zonder ingelogde gebruiker', async () => {
     await withTx(async (tx) => {
       await tx`select set_config('request.jwt.claim.sub', '', true)`
