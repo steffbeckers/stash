@@ -63,6 +63,32 @@ describe('rechten', () => {
     })
   })
 
+  // Regressietest voor een gat dat `pg_trigger_depth() = 0` openliet: die
+  // clausule kan een cascade vanuit het opheffen van het huishouden zelf niet
+  // onderscheiden van een cascade vanuit het verwijderen van de account van de
+  // enige eigenaar (auth.users on delete cascade -> household_member). Beide
+  // zijn geneste cascades op dezelfde diepte. Dit pad is vandaag al bereikbaar
+  // via Supabase Studio's "Delete user" of auth.admin.deleteUser(), zonder
+  // app-code.
+  it('het verwijderen van de account van de enige eigenaar wordt geblokkeerd', async () => {
+    const userId = await createUser('enige-eigenaar@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Solo')`
+
+      // Savepoint isoleert de mislukte delete van de rest van de transactie.
+      await expect(
+        tx.savepoint((sp) => sp`delete from auth.users where id = ${userId}`),
+      ).rejects.toThrow()
+
+      const rows = await tx<{ role: string }[]>`
+        select role from household_member where household_id = ${hh!.create_household}
+      `
+      expect(rows.length).toBe(1)
+      expect(rows[0]!.role).toBe('owner')
+    })
+  })
+
   it('een eigenaar kan wel weg als er een tweede eigenaar is', async () => {
     const first = await createUser('een@example.com')
     const second = await createUser('twee@example.com')
@@ -83,15 +109,29 @@ describe('rechten', () => {
     })
   })
 
+  // Dekt alle functies van dit vlak, niet alleen create_household: de vorige
+  // versie van deze test controleerde alleen create_household terwijl de naam
+  // "geen enkele" beloofde. is_household_member/is_household_owner (taak 6)
+  // en create_invite/accept_invite (taak 8, daar al gefixt) staan er nu ook in.
+  const householdFunctions = [
+    'create_household(text)',
+    'is_household_member(uuid)',
+    'is_household_owner(uuid)',
+    'create_invite(uuid, int, int)',
+    'accept_invite(text)',
+  ]
+
   it('anon mag geen enkele huishoudfunctie aanroepen', async () => {
     await withTx(async (tx) => {
-      const [row] = await tx<{ f: string; anon: boolean; auth: boolean }[]>`
-        select 'create_household' as f,
-               has_function_privilege('anon', 'create_household(text)', 'execute') as anon,
-               has_function_privilege('authenticated', 'create_household(text)', 'execute') as auth
-      `
-      expect(row!.anon).toBe(false)
-      expect(row!.auth).toBe(true)
+      for (const fn of householdFunctions) {
+        const [row] = await tx<{ anon: boolean; auth: boolean }[]>`
+          select
+            has_function_privilege('anon', ${fn}, 'execute') as anon,
+            has_function_privilege('authenticated', ${fn}, 'execute') as auth
+        `
+        expect(row!.anon, `anon op ${fn}`).toBe(false)
+        expect(row!.auth, `authenticated op ${fn}`).toBe(true)
+      }
     })
   })
 
