@@ -40,5 +40,16 @@
     "revoke": "Revoke",
     "expiresOn": "Valid until {date}",
     "usesLeft": "{count} uses left"
+  },
+  "places": {
+    "title": "Storage places",
+    "add": "Add a place",
+    "name": "Name",
+    "kind": "Type",
+    "pantry": "Pantry",
+    "fridge": "Fridge",
+    "freezer": "Freezer",
+    "other": "Other",
+    "delete": "Delete"
   }
 }

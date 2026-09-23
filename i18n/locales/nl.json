@@ -40,5 +40,16 @@
     "revoke": "Intrekken",
     "expiresOn": "Geldig tot {date}",
     "usesLeft": "Nog {count} keer te gebruiken"
+  },
+  "places": {
+    "title": "Bewaarplaatsen",
+    "add": "Plaats toevoegen",
+    "name": "Naam",
+    "kind": "Soort",
+    "pantry": "Voorraadkast",
+    "fridge": "Koelkast",
+    "freezer": "Vriezer",
+    "other": "Andere",
+    "delete": "Verwijderen"
   }
 }

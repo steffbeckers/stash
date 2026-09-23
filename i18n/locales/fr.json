@@ -40,5 +40,16 @@
     "revoke": "Révoquer",
     "expiresOn": "Valable jusqu'au {date}",
     "usesLeft": "Encore {count} utilisations"
+  },
+  "places": {
+    "title": "Lieux de rangement",
+    "add": "Ajouter un lieu",
+    "name": "Nom",
+    "kind": "Type",
+    "pantry": "Garde-manger",
+    "fridge": "Réfrigérateur",
+    "freezer": "Congélateur",
+    "other": "Autre",
+    "delete": "Supprimer"
   }
 }
