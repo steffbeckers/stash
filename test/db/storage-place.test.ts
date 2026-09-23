@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withDb, withTx, actAs, enableRls, createUser, resetDb } from './helpers'
+import { withTx, actAs, enableRls, createUser, resetDb } from './helpers'
 
 describe('bewaarplaatsen', () => {
   beforeEach(resetDb)

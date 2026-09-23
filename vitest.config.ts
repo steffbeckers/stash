@@ -6,8 +6,10 @@ import { defineConfig } from 'vitest/config'
 // regular `environment: 'node'` project and must NOT use defineVitestConfig
 // or defineVitestProject from @nuxt/test-utils/config — those are for
 // Nuxt client-environment (component/unit) tests only and, combined with
-// e2e's setup(), break test-file bundling (see
-// https://github.com/nuxt/test-utils/issues/1490).
+// e2e's setup(), break test-file bundling. This is documented, intended
+// behaviour, not an open bug — the maintainers closed
+// https://github.com/nuxt/test-utils/issues/1490 on 2026-09-01 explaining
+// exactly this constraint, so don't "fix" this config to use those helpers.
 export default defineConfig({
   test: {
     environment: 'node',

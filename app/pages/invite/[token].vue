@@ -12,7 +12,7 @@ const householdName = ref('')
 onMounted(async () => {
   if (!user.value) {
     // na inloggen keert de gebruiker hier terug
-    await navigateTo(localePath(`/login?redirect=/invite/${route.params.token}`))
+    await navigateTo(localePath(`/login?redirect=/invite/${encodeURIComponent(route.params.token as string)}`))
     return
   }
 

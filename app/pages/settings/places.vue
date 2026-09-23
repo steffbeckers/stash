@@ -63,8 +63,19 @@ async function remove(id: string) {
 // In onMounted, niet op top-level await: activeId komt uit localStorage en is
 // tijdens SSR altijd null. Een top-level await zou de lijst leeg renderen en
 // hem na hydratie nooit opnieuw ophalen.
+//
+// De pagina die taak 11's sweep tegen stille fouten miste: refresh() kan
+// weigeren (RLS, netwerk) en zonder try/catch zag dat er precies hetzelfde
+// uit als een leeg huishouden, zonder enige melding. app.vue en
+// settings/household.vue hebben dit al; hier hetzelfde patroon, met de
+// bestaande error-ref die de template al toont.
 onMounted(async () => {
-  await refresh()
+  try {
+    await refresh()
+  } catch {
+    error.value = t('householdSettings.error')
+    return
+  }
   await load()
 })
 </script>
