@@ -30,10 +30,15 @@ export function useHousehold() {
 
     if (error) throw error
 
-    households.value = (data ?? []).map((row: any) => ({
+    households.value = (data ?? []).map((row) => ({
       id: row.household.id,
       name: row.household.name,
-      role: row.role,
+      // household_member.role is een tekstkolom met een check-constraint,
+      // geen Postgres-enum, dus de gegenereerde types geven hier `string`
+      // terug in plaats van de letterlijke unie. De check-constraint
+      // garandeert de waarde; deze cast benoemt dat, in plaats van de hele
+      // rij ongetypeerd te laten zoals de eerdere `(row: any)` deed.
+      role: row.role as Household['role'],
     }))
 
     const stored = import.meta.client ? localStorage.getItem(ACTIVE_KEY) : null

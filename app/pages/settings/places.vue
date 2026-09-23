@@ -33,7 +33,12 @@ async function load() {
     return
   }
   error.value = ''
-  places.value = (data ?? []) as Place[]
+  // storage_place.kind is een tekstkolom met een check-constraint, geen
+  // Postgres-enum, dus de gegenereerde types geven hier `string` terug in
+  // plaats van de letterlijke unie. Alleen dat veld hoeft genoemd te worden
+  // — id/name komen al getypeerd uit de gegenereerde Database-types, in
+  // plaats van de hele rij ongetypeerd weg te casten zoals `as Place[]` deed.
+  places.value = (data ?? []).map((row) => ({ ...row, kind: row.kind as Place['kind'] }))
 }
 
 async function add() {

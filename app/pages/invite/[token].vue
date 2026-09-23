@@ -34,7 +34,9 @@ onMounted(async () => {
     .eq('id', data as string)
     .single()
 
-  householdName.value = (hh as { name: string } | null)?.name ?? ''
+  // hh is al correct getypeerd door de gegenereerde Database-types
+  // (household.name is not-null), dus geen cast meer nodig.
+  householdName.value = hh?.name ?? ''
   state.value = 'done'
 })
 </script>

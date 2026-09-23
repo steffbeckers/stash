@@ -28,7 +28,10 @@ async function load() {
     return
   }
   error.value = ''
-  invites.value = (data ?? []) as Invite[]
+  // Elke geselecteerde kolom is not-null en heeft geen check-constraint die
+  // een ruimere kolomtype oplevert dan Invite verwacht, dus de gegenereerde
+  // Database-types sluiten hier exact aan — geen cast meer nodig.
+  invites.value = data ?? []
 }
 
 async function create() {
