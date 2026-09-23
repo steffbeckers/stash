@@ -73,7 +73,16 @@ export async function actAs(tx: Sql, userId: string): Promise<void> {
   await tx`select set_config('request.jwt.claim.sub', ${userId}, true)`
 }
 
-/** Zet RLS aan voor de rest van de transactie. Doe je opzet hiervóór. */
-export async function enableRls(tx: Sql): Promise<void> {
-  await tx`set local role authenticated`
+/**
+ * Zet RLS aan voor de rest van de transactie. Doe je opzet hiervóór.
+ *
+ * Standaard `authenticated` (een ingelogde gebruiker via `actAs`). Geef
+ * `'anon'` door om de rol van een niet-ingelogde bezoeker te testen — de rol
+ * die de publieke anon-sleutel in de browserbundel gebruikt.
+ */
+export async function enableRls(tx: Sql, role: 'authenticated' | 'anon' = 'authenticated'): Promise<void> {
+  // `set local role` neemt geen bind-parameter (dat is geen geldige SQL);
+  // `role` komt uit een TS-unietype hierboven, niet uit ongefilterde
+  // gebruikersinvoer, dus een letterlijke string hier is veilig.
+  await tx.unsafe(`set local role ${role}`)
 }

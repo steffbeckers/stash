@@ -58,7 +58,7 @@ describe('user_profile', () => {
     })
   })
 
-  it('laat profielen wel lezen door andere ingelogde gebruikers', async () => {
+  it('laat profielen lezen door andere ingelogde gebruikers', async () => {
     const mine = await createUser('lezer@example.com')
     const theirs = await createUser('gelezene@example.com')
 
@@ -66,9 +66,26 @@ describe('user_profile', () => {
       await actAs(tx, mine)
       await enableRls(tx)
       const rows = await tx`select user_id from user_profile where user_id = ${theirs}`
-      // De select-policy is bewust `using (true)`: weergavenamen zijn publiek.
-      // Wie dit ooit dichtzet, hoort deze test te zien falen.
+      // De select-policy is `to authenticated using (true)`: elke ingelogde
+      // gebruiker mag elk profiel lezen, want weergavenamen zijn publiek
+      // binnen de app. Zie de test hieronder voor de grens: anon mag dit niet.
       expect(rows.length).toBe(1)
+    })
+  })
+
+  // Bevinding 1 van de eindreview van plan 1: deze policy had geen
+  // `to authenticated` (rol was {public}) en anon — de rol van de publieke
+  // anon-sleutel die standaard in de browserbundel zit — kon zo de hele
+  // gebruikersregistratie uitlezen via GET /rest/v1/user_profile?select=*:
+  // user_id, display_name, trust_level en role van iedereen. Zonder deze
+  // test kan die grens weer stilletjes verdwijnen.
+  it('laat anon geen enkel profiel lezen', async () => {
+    const theirs = await createUser('anoniem-doelwit@example.com')
+
+    await withTx(async (tx) => {
+      await enableRls(tx, 'anon')
+      const rows = await tx`select user_id from user_profile where user_id = ${theirs}`
+      expect(rows.length).toBe(0)
     })
   })
 })
