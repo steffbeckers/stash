@@ -18,11 +18,16 @@ const copied = ref<string | null>(null)
 const error = ref('')
 
 async function load() {
-  const { data } = await supabase
+  const { data, error: loadError } = await supabase
     .from('household_invite')
     .select('id, token, expires_at, max_uses, uses')
     .eq('household_id', props.householdId)
     .order('created_at', { ascending: false })
+  if (loadError) {
+    error.value = t('householdSettings.error')
+    return
+  }
+  error.value = ''
   invites.value = (data ?? []) as Invite[]
 }
 
@@ -72,7 +77,7 @@ onMounted(load)
         <div class="min-w-0 text-sm">
           <UInput
             :model-value="linkFor(invite.token)"
-            aria-label="Invitation link"
+            :aria-label="t('invite.linkLabel')"
             readonly
             class="w-full font-mono text-xs"
           />

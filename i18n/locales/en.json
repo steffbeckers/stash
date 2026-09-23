@@ -35,6 +35,7 @@
     "success": "You have joined {name}.",
     "failed": "This invitation is no longer valid.",
     "create": "Create invitation link",
+    "linkLabel": "Invitation link",
     "copy": "Copy link",
     "copied": "Copied",
     "revoke": "Revoke",

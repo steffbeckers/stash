@@ -3,9 +3,15 @@ const { t } = useI18n()
 const { activeId, refresh } = useHousehold()
 
 const ready = ref(false)
+const failed = ref(false)
 
 onMounted(async () => {
-  await refresh()
+  try {
+    await refresh()
+  } catch {
+    failed.value = true
+    return
+  }
   ready.value = true
 })
 </script>
@@ -16,7 +22,8 @@ onMounted(async () => {
 
     <section class="mt-8">
       <h2 class="mb-3 font-semibold">{{ t('householdSettings.invitations') }}</h2>
-      <UProgress v-if="!ready" animation="carousel" />
+      <UAlert v-if="failed" color="error" :description="t('householdSettings.error')" />
+      <UProgress v-else-if="!ready" animation="carousel" />
       <HouseholdInvites v-else-if="activeId" :household-id="activeId" />
     </section>
   </UContainer>

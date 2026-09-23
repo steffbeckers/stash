@@ -24,8 +24,15 @@ test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, bro
   await page.goto('/settings/household')
   await waitForButtonHydration(page)
   await page.getByRole('button', { name: 'Create invitation link' }).click()
+  // Label komt uit invite.linkLabel (i18n), niet meer hardcoded — in het
+  // Engels (de standaardlocale waarin deze test draait) is de tekst
+  // ongewijzigd "Invitation link".
   const link = await page.getByRole('textbox', { name: 'Invitation link' }).inputValue()
   expect(link).toContain('/invite/')
+
+  // De vervaldatum moet een echt jaartal tonen, niet leeg renderen —
+  // zonder datetimeFormats voor 'short' rendert d() niets.
+  await expect(page.getByText(/Valid until .*\d{4}/)).toBeVisible()
 
   // Een verse browsercontext: iemand die nergens is ingelogd.
   const guestContext = await browser.newContext()
@@ -71,4 +78,29 @@ test('een externe redirect wordt genegeerd', async ({ page }) => {
 
   const magicLink2 = await readLatestMagicLink(email2)
   expect(magicLink2).not.toContain('example.com')
+
+  // Een backslash in plaats van de tweede slash: een handgeschreven
+  // `!startsWith('//')` mist dit (de tweede byte is geen '/'), maar een
+  // browser behandelt het toch als protocol-relatief. Dit is het gat dat de
+  // review vond in de eerste versie van de guard.
+  const email3 = `e2e-redirect3-${Date.now()}@example.com`
+  await page.goto(`/login?redirect=${encodeURIComponent('/\\example.com/phishing')}`)
+  await waitForHydration(page)
+  await page.getByLabel(/email/i).fill(email3)
+  await page.getByRole('button', { name: /link/i }).click()
+  await expect(page.getByText(/inbox/i)).toBeVisible()
+
+  const magicLink3 = await readLatestMagicLink(email3)
+  expect(magicLink3).not.toContain('example.com')
+
+  // Zelfde gat, met een tab tussen de twee scheidingstekens.
+  const email4 = `e2e-redirect4-${Date.now()}@example.com`
+  await page.goto(`/login?redirect=${encodeURIComponent('/\t/example.com/phishing')}`)
+  await waitForHydration(page)
+  await page.getByLabel(/email/i).fill(email4)
+  await page.getByRole('button', { name: /link/i }).click()
+  await expect(page.getByText(/inbox/i)).toBeVisible()
+
+  const magicLink4 = await readLatestMagicLink(email4)
+  expect(magicLink4).not.toContain('example.com')
 })

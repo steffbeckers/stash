@@ -35,6 +35,7 @@
     "success": "Je bent lid geworden van {name}.",
     "failed": "Deze uitnodiging is niet meer geldig.",
     "create": "Uitnodigingslink maken",
+    "linkLabel": "Uitnodigingslink",
     "copy": "Link kopiëren",
     "copied": "Gekopieerd",
     "revoke": "Intrekken",

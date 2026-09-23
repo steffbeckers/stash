@@ -1,15 +1,9 @@
 <script setup lang="ts">
 const route = useRoute()
 
-// Alleen interne paden. Zonder deze controle kan iemand
-// ?redirect=https://kwaadaardig.example in een link zetten en jouw inlogpagina
-// gebruiken om mensen naar een phishingsite te sturen.
-const redirectTo = computed(() => {
-  const value = route.query.redirect
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
-    ? value
-    : null
-})
+// Alleen interne paden. Zie app/utils/safe-redirect.ts voor waarom een
+// handgeschreven prefixcontrole hier niet volstaat.
+const redirectTo = computed(() => safeInternalPath(route.query.redirect))
 
 const { t } = useI18n()
 const supabase = useSupabaseClient()
