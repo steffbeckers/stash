@@ -11,7 +11,7 @@ De code zelf staat in git; dit is het geheugen eromheen.
 | Bestand | Inhoud |
 | --- | --- |
 | `progress.md` | Het grootboek: 24 uitspraken (rulings) die tijdens de uitvoering zijn vastgelegd, plus de afronding per taak. |
-| `deferred-minors.md` | 29 kleine bevindingen die bewust zijn doorgeschoven. **Lees dit voor je aan een volgend plan begint.** |
+| `deferred-minors.md` | De 29 kleine bevindingen zoals ze tijdens plan 1 zijn doorgeschoven. Historisch: voor wat er *nu* nog openstaat, zie [open-bevindingen.md](../../open-bevindingen.md). |
 | `task-N-report.md` | Per taak: wat er is gebouwd, het RED/GREEN-bewijs, afwijkingen van de brief en de motivatie ervoor. |
 | `final-fix-report.md` | De acht punten die de eindreview over de hele branch vond, en hoe ze zijn verholpen. |
 
