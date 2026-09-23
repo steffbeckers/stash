@@ -1,0 +1,61 @@
+{
+  "app": {
+    "name": "Stash",
+    "tagline": "Know what you have at home"
+  },
+  "nav": {
+    "inventory": "Inventory",
+    "settings": "Settings"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "email": "Email address",
+    "sendLink": "Send me a link",
+    "linkSent": "Check your inbox — we sent you a sign-in link.",
+    "signOut": "Sign out",
+    "error": "Something went wrong. Please try again."
+  },
+  "landing": {
+    "getStarted": "Get started"
+  },
+  "appHome": {
+    "title": "Your household"
+  },
+  "onboarding": {
+    "title": "Get started",
+    "startTitle": "Start a household",
+    "startHelp": "Track what you have at home, on your own or with others.",
+    "name": "Household name",
+    "start": "Start",
+    "joinTitle": "Join a household",
+    "joinHelp": "Someone can send you an invitation link."
+  },
+  "invite": {
+    "joining": "Joining household…",
+    "success": "You have joined {name}.",
+    "failed": "This invitation is no longer valid.",
+    "create": "Create invitation link",
+    "linkLabel": "Invitation link",
+    "copy": "Copy link",
+    "copied": "Copied",
+    "revoke": "Revoke",
+    "expiresOn": "Valid until {date}",
+    "usesLeft": "{count} uses left"
+  },
+  "places": {
+    "title": "Storage places",
+    "add": "Add a place",
+    "name": "Name",
+    "kind": "Type",
+    "pantry": "Pantry",
+    "fridge": "Fridge",
+    "freezer": "Freezer",
+    "other": "Other",
+    "delete": "Delete"
+  },
+  "householdSettings": {
+    "title": "Household",
+    "invitations": "Invitations",
+    "error": "That did not work. Please try again."
+  }
+}

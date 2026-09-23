@@ -102,7 +102,22 @@ Create `app/assets/css/main.css`:
 @import "@nuxt/ui";
 ```
 
-- [ ] **Step 5: `wrangler.jsonc` schrijven**
+- [ ] **Step 5: `app/app.vue` vervangen**
+
+`nuxi init` genereert een `app.vue` met `<NuxtWelcome />`. Zonder `<NuxtPage />` rendert geen enkele pagina, en Nuxt UI heeft `<UApp>` als wortel nodig voor overlays en toasts.
+
+Replace `app/app.vue`:
+
+```vue
+<template>
+  <UApp>
+    <NuxtRouteAnnouncer />
+    <NuxtPage />
+  </UApp>
+</template>
+```
+
+- [ ] **Step 6: `wrangler.jsonc` schrijven**
 
 ```jsonc
 {
@@ -121,7 +136,7 @@ Create `app/assets/css/main.css`:
 }
 ```
 
-- [ ] **Step 6: De falende test schrijven**
+- [ ] **Step 7: De falende test schrijven**
 
 Create `test/server/health.test.ts`:
 
@@ -165,7 +180,7 @@ Voeg toe aan `package.json` scripts:
 "deploy": "nuxt build && wrangler deploy"
 ```
 
-- [ ] **Step 7: De test draaien en zien dat hij faalt**
+- [ ] **Step 8: De test draaien en zien dat hij faalt**
 
 ```bash
 npm test
@@ -173,7 +188,7 @@ npm test
 
 Verwacht: FAIL. De route `/api/health` bestaat niet, dus `$fetch` geeft een 404.
 
-- [ ] **Step 8: De minimale implementatie schrijven**
+- [ ] **Step 9: De minimale implementatie schrijven**
 
 Create `server/api/health.get.ts`:
 
@@ -187,7 +202,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-- [ ] **Step 9: De test draaien en zien dat hij slaagt**
+- [ ] **Step 10: De test draaien en zien dat hij slaagt**
 
 ```bash
 npm test
@@ -195,7 +210,7 @@ npm test
 
 Verwacht: PASS, beide tests.
 
-- [ ] **Step 10: Lokaal draaien in de Workers-runtime**
+- [ ] **Step 11: Lokaal draaien in de Workers-runtime**
 
 ```bash
 npm run dev
@@ -203,7 +218,7 @@ npm run dev
 
 Open `http://localhost:3000/api/health` en controleer dat je `{"status":"ok","version":"dev"}` ziet. `nitro-cloudflare-dev` zorgt dat dit de echte Workers-runtime gebruikt en niet Node — dat is het punt van deze stap.
 
-- [ ] **Step 11: Naar Cloudflare uitrollen**
+- [ ] **Step 12: Naar Cloudflare uitrollen**
 
 ```bash
 npx wrangler login
@@ -214,7 +229,7 @@ Open de URL die Wrangler teruggeeft, met `/api/health` erachter. Zie je het JSON
 
 **Faalt dit:** noteer de exacte fout en stop. Overstappen naar een container-host is een andere Nitro-preset en verder geen herwerk, maar dat is een beslissing voor de mens — niet iets om omheen te knutselen.
 
-- [ ] **Step 12: `.gitignore` aanvullen en committen**
+- [ ] **Step 13: `.gitignore` aanvullen en committen**
 
 Voeg toe aan `.gitignore`:
 
@@ -306,10 +321,95 @@ export async function resetDb(): Promise<void> {
 }
 ```
 
+Voeg in hetzelfde bestand ook deze helpers toe. Ze worden pas vanaf Task 5
+gebruikt, maar ze horen hier omdat elke latere databasetest ze nodig heeft en
+ze anders zes keer woordelijk gekopieerd zouden worden:
+
+```ts
+export async function createUser(email: string): Promise<string> {
+  let id = ''
+  await withDb(async (sql) => {
+    const rows = await sql<{ id: string }[]>`
+      insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
+                              email_confirmed_at, created_at, updated_at)
+      values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
+              'authenticated', ${email}, '', now(), now(), now())
+      returning id
+    `
+    id = rows[0]!.id
+  })
+  return id
+}
+
+/**
+ * Draait fn in één transactie.
+ *
+ * De transactie is niet optioneel: `set local` werkt alleen binnen een
+ * transactieblok. Daarbuiten doet `set local role authenticated` niets,
+ * draait de test als superuser, en omzeilt hij RLS volledig — groen, en
+ * zonder ook maar iets te bewijzen.
+ */
+export async function withTx(fn: (tx: Sql) => Promise<void>): Promise<void> {
+  await withDb(async (sql) => {
+    await sql.begin(async (tx) => {
+      await fn(tx as unknown as Sql)
+    })
+  })
+}
+
+/** Zet wie er ingelogd is. Mag meermaals in dezelfde transactie. */
+export async function actAs(tx: Sql, userId: string): Promise<void> {
+  await tx`select set_config('request.jwt.claim.sub', ${userId}, true)`
+}
+
+/** Zet RLS aan voor de rest van de transactie. Doe je opzet hiervóór. */
+export async function enableRls(tx: Sql): Promise<void> {
+  await tx`set local role authenticated`
+}
+```
+
+De drie samen dekken twee soorten test:
+
+- **Bewijzen dat RLS werkt:** opzet doen, dan `actAs` + `enableRls`, dan de
+  query die wel of niets mag zien.
+- **Een `security definer`-functie aanroepen** met een bekende `auth.uid()`:
+  alleen `actAs`, geen `enableRls` — dan zit RLS de opzet niet in de weg.
+
+`actAs` mag meerdere keren in dezelfde transactie, wat nodig is zodra een
+test een eigenaar iets laat doen en daarna een gast.
+
 `resetDb` leegt **alle** tabellen in het publieke schema, niet alleen
 `auth.users`. Alleen gebruikers wissen laat huishoudens zonder leden achter,
 en die lekken dan door naar de volgende test. Omdat de lijst dynamisch is,
 blijft deze helper werken naarmate latere taken tabellen toevoegen.
+
+**Controleer eenmalig dat `auth.uid()` de claim oppikt.** Voeg deze test toe
+aan `test/db/extensions.test.ts` en laat hem slagen voordat je verdergaat:
+
+```ts
+import { withDb } from './helpers'
+
+it('auth.uid() leest de gezette claim', async () => {
+  await withDb(async (sql) => {
+    await sql.begin(async (tx) => {
+      const id = '11111111-1111-1111-1111-111111111111'
+      await tx`select set_config('request.jwt.claim.sub', ${id}, true)`
+      const [row] = await tx<{ uid: string | null }[]>`select auth.uid() as uid`
+      expect(row!.uid).toBe(id)
+    })
+  })
+})
+```
+
+Geeft die test `null` terug, gebruik dan in **beide** helpers de JSON-vorm in
+plaats van de losse claim:
+
+```ts
+await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: userId })}, true)`
+```
+
+Dit eenmalig uitzoeken scheelt je in elke volgende taak een zoektocht naar
+tests die groen zijn maar niets bewijzen.
 
 Create `test/db/extensions.test.ts`:
 
@@ -372,7 +472,8 @@ Verwacht: PASS, beide tests.
 
 - [ ] **Step 7: Databasetests een eigen commando geven**
 
-`test/db` draait tegen een echte database en heeft de Node-omgeving nodig, niet de Nuxt-omgeving. Splits daarom de configuratie.
+`test/db` heeft een draaiende Docker en een lokale database nodig; `npm test`
+moet ook zonder dat kunnen draaien. Splits daarom de configuratie.
 
 Create `vitest.db.config.ts`:
 
@@ -388,14 +489,22 @@ export default defineConfig({
 })
 ```
 
-Pas `vitest.config.ts` aan zodat hij `test/db` overslaat:
+Pas `vitest.config.ts` aan zodat hij `test/db` overslaat. **Let op:** Task 1
+heeft dit bestand bewust op `defineConfig` met `environment: 'node'` gezet, met
+een toelichting erboven. Behoud beide — voeg alleen `exclude` toe en raak de
+omgeving niet aan:
 
 ```ts
-import { defineVitestConfig } from '@nuxt/test-utils/config'
+import { defineConfig } from 'vitest/config'
 
-export default defineVitestConfig({
+// health.test.ts gebruikt @nuxt/test-utils/e2e (setup + $fetch tegen een
+// echt draaiende server), niet het mounten van componenten. E2e-tests
+// moeten een gewoon `environment: 'node'`-project zijn en mogen
+// defineVitestConfig niet gebruiken: die combinatie breekt het bundelen
+// van testbestanden (nuxt/test-utils#1490).
+export default defineConfig({
   test: {
-    environment: 'nuxt',
+    environment: 'node',
     exclude: ['test/db/**', 'node_modules/**', 'e2e/**'],
   },
 })
@@ -409,6 +518,11 @@ Voeg toe aan `package.json` scripts:
 ```
 
 `fileParallelism: false` is belangrijk: databasetests delen één database en zouden elkaar anders omvergooien.
+
+**Vereiste vóór je begint:** Docker Desktop moet draaien. `npx supabase start`
+faalt anders met een verbindingsfout naar de Docker-daemon. Draait Docker niet
+en kan jij hem niet starten, rapporteer dan BLOCKED — dit is een
+omgevingsvereiste, geen taakprobleem.
 
 - [ ] **Step 8: Beide testsuites draaien**
 
@@ -630,6 +744,8 @@ git commit -m "feat: meertaligheid met en, nl en fr, met een test die sleutels g
 - Modify: `nuxt.config.ts`
 - Create: `app/pages/login.vue`
 - Create: `app/pages/confirm.vue`
+- Create: `app/pages/app.vue`
+- Modify: `app/pages/index.vue` (wordt de publieke landingspagina)
 - Modify: `i18n/locales/en.json`, `i18n/locales/nl.json`, `i18n/locales/fr.json`
 - Create: `e2e/login.spec.ts`
 - Create: `playwright.config.ts`
@@ -662,7 +778,12 @@ En als eigen blok:
     redirectOptions: {
       login: '/login',
       callback: '/confirm',
-      exclude: ['/login', '/confirm', '/nl/login', '/nl/confirm', '/fr/login', '/fr/confirm'],
+      exclude: [
+        '/', '/nl', '/fr',
+        '/login', '/confirm',
+        '/nl/login', '/nl/confirm',
+        '/fr/login', '/fr/confirm',
+      ],
     },
   },
 ```
@@ -683,6 +804,12 @@ Voeg toe aan alle drie de locale-bestanden, binnen het hoofdobject.
     "linkSent": "Check your inbox — we sent you a sign-in link.",
     "signOut": "Sign out",
     "error": "Something went wrong. Please try again."
+  },
+  "landing": {
+    "getStarted": "Get started"
+  },
+  "appHome": {
+    "title": "Your household"
   }
 ```
 
@@ -696,6 +823,12 @@ Voeg toe aan alle drie de locale-bestanden, binnen het hoofdobject.
     "linkSent": "Kijk in je mailbox — we stuurden je een inloglink.",
     "signOut": "Uitloggen",
     "error": "Er ging iets mis. Probeer het opnieuw."
+  },
+  "landing": {
+    "getStarted": "Aan de slag"
+  },
+  "appHome": {
+    "title": "Je huishouden"
   }
 ```
 
@@ -709,15 +842,85 @@ Voeg toe aan alle drie de locale-bestanden, binnen het hoofdobject.
     "linkSent": "Consultez votre boîte mail — nous vous avons envoyé un lien de connexion.",
     "signOut": "Se déconnecter",
     "error": "Une erreur s'est produite. Veuillez réessayer."
+  },
+  "landing": {
+    "getStarted": "Commencer"
+  },
+  "appHome": {
+    "title": "Votre ménage"
   }
 ```
 
+- [ ] **Step 3b: De landingspagina en de app-startpagina scheiden**
+
+De homepage blijft publiek. Wie op Stash belandt krijgt uitleg, geen
+inlogscherm; pas wie besluit hem te gebruiken klikt door. De app zelf leeft
+onder `/app`.
+
+Houd de landingspagina hier bewust dun — dit is een authenticatietaak, geen
+marketingtaak. Het verhaal komt later.
+
+Replace `app/pages/index.vue`:
+
+```vue
+<script setup lang="ts">
+const { t } = useI18n()
+const localePath = useLocalePath()
+const user = useSupabaseUser()
+
+// Dagelijkse gebruikers horen de uitlegpagina niet elke keer te zien.
+watch(user, (value) => {
+  if (value) navigateTo(localePath('/app'))
+}, { immediate: true })
+</script>
+
+<template>
+  <UContainer class="py-16 text-center">
+    <h1 class="text-4xl font-bold">{{ t('app.name') }}</h1>
+    <p class="mt-3 text-lg text-muted">{{ t('app.tagline') }}</p>
+    <UButton class="mt-8" size="lg" :to="localePath('/login')">
+      {{ t('landing.getStarted') }}
+    </UButton>
+  </UContainer>
+</template>
+```
+
+Create `app/pages/app.vue`:
+
+```vue
+<script setup lang="ts">
+const { t } = useI18n()
+</script>
+
+<template>
+  <UContainer class="py-12">
+    <h1 class="text-2xl font-bold">{{ t('appHome.title') }}</h1>
+  </UContainer>
+</template>
+```
+
+Task 7 bouwt deze pagina uit tot de echte app-start; hier is hij alleen de
+afgeschermde tegenhanger van de publieke landingspagina, zodat er iets bestaat
+om de afscherming tegen te testen.
+
 - [ ] **Step 4: De falende e2e-test schrijven**
 
-Create `playwright.config.ts`:
+Create `playwright.config.ts`. Het laden van `.env` staat er vanaf het begin
+in, want Task 7 heeft `SUPABASE_URL` en `SUPABASE_SERVICE_KEY` nodig in de
+tests. Gebruik dezelfde aanpak als `test/db/helpers.ts` uit Task 2 — de
+ingebouwde `process.loadEnvFile()`, geen extra afhankelijkheid:
 
 ```ts
 import { defineConfig } from '@playwright/test'
+
+// Zelfde reden als in test/db/helpers.ts: de testrunner laadt .env niet
+// vanzelf. Een ontbrekend bestand negeren we; de tests falen dan alsnog
+// met een duidelijke melding over de ontbrekende variabele.
+try {
+  process.loadEnvFile()
+} catch {
+  // .env ontbreekt of is onleesbaar
+}
 
 export default defineConfig({
   testDir: './e2e',
@@ -736,8 +939,14 @@ Create `e2e/login.spec.ts`:
 ```ts
 import { test, expect } from '@playwright/test'
 
-test('een afgeschermde pagina stuurt je naar inloggen', async ({ page }) => {
+test('de homepage blijft publiek', async ({ page }) => {
   await page.goto('/')
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('link', { name: 'Get started' })).toBeVisible()
+})
+
+test('een afgeschermde pagina stuurt je naar inloggen', async ({ page }) => {
+  await page.goto('/app')
   await expect(page).toHaveURL(/\/login/)
 })
 
@@ -824,7 +1033,7 @@ const user = useSupabaseUser()
 const localePath = useLocalePath()
 
 watch(user, (value) => {
-  if (value) navigateTo(localePath('/'))
+  if (value) navigateTo(localePath('/app'))
 }, { immediate: true })
 </script>
 
@@ -876,38 +1085,23 @@ Create `test/db/user-profile.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withDb, resetDb } from './helpers'
-
-async function createUser(email: string): Promise<string> {
-  let id = ''
-  await withDb(async (sql) => {
-    const rows = await sql<{ id: string }[]>`
-      insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
-                              email_confirmed_at, created_at, updated_at)
-      values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
-              'authenticated', ${email}, '', now(), now(), now())
-      returning id
-    `
-    id = rows[0]!.id
-  })
-  return id
-}
+import { withDb, withTx, actAs, enableRls, createUser, resetDb } from './helpers'
 
 describe('user_profile', () => {
   beforeEach(resetDb)
 
   it('ontstaat automatisch bij een nieuwe gebruiker', async () => {
     const userId = await createUser('nieuw@example.com')
-    await withDb(async (sql) => {
-      const rows = await sql`select * from user_profile where user_id = ${userId}`
+    await withTx(async (tx) => {
+      const rows = await tx`select * from user_profile where user_id = ${userId}`
       expect(rows.length).toBe(1)
     })
   })
 
   it('start op trust_level 0 en rol user', async () => {
     const userId = await createUser('start@example.com')
-    await withDb(async (sql) => {
-      const rows = await sql<{ trust_level: number; role: string }[]>`
+    await withTx(async (tx) => {
+      const rows = await tx<{ trust_level: number; role: string }[]>`
         select trust_level, role from user_profile where user_id = ${userId}
       `
       expect(rows[0]!.trust_level).toBe(0)
@@ -917,10 +1111,50 @@ describe('user_profile', () => {
 
   it('verdwijnt wanneer de gebruiker verdwijnt', async () => {
     const userId = await createUser('weg@example.com')
-    await withDb(async (sql) => {
-      await sql`delete from auth.users where id = ${userId}`
-      const rows = await sql`select * from user_profile where user_id = ${userId}`
+    await withTx(async (tx) => {
+      await tx`delete from auth.users where id = ${userId}`
+      const rows = await tx`select * from user_profile where user_id = ${userId}`
       expect(rows.length).toBe(0)
+    })
+  })
+
+  // De twee tests hieronder draaien wel onder RLS. Zonder hen zou deze suite
+  // even groen zijn met `enable row level security` volledig weggehaald — en
+  // dan bewijst ze niets over de policies die de tabel beschermen.
+
+  it('laat een gebruiker het profiel van iemand anders niet wijzigen', async () => {
+    const mine = await createUser('mijn-profiel@example.com')
+    const theirs = await createUser('ander-profiel@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, mine)
+      await enableRls(tx)
+      const result = await tx`
+        update user_profile set display_name = 'gekaapt' where user_id = ${theirs}
+      `
+      // RLS geeft hier geen fout maar raakt nul rijen; dat is het bewijs.
+      expect(result.count).toBe(0)
+    })
+
+    await withDb(async (sql) => {
+      const [row] = await sql<{ display_name: string | null }[]>`
+        select display_name from user_profile where user_id = ${theirs}
+      `
+      expect(row!.display_name).toBeNull()
+    })
+  })
+
+  it('laat profielen wel lezen door andere ingelogde gebruikers', async () => {
+    const mine = await createUser('lezer@example.com')
+    const theirs = await createUser('gelezene@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, mine)
+      await enableRls(tx)
+      const rows = await tx`select user_id from user_profile where user_id = ${theirs}`
+      // De select-policy is bewust `using (true)`: weergavenamen zijn publiek.
+      // Wie dit ooit dichtzet, hoort deze test te zien falen.
+      expect(rows.length).toBe(1)
     })
   })
 })
@@ -1008,16 +1242,20 @@ git commit -m "feat: user_profile met trigger en vertrouwensniveau"
 - Consumes: `user_profile` uit Task 5, de testhelpers uit Task 2
 - Produces: tabellen `household(id, name, created_at)` en `household_member(household_id, user_id, role, joined_at)`, plus de hulpfuncties `is_household_member(target uuid) returns boolean` en `is_household_owner(target uuid) returns boolean`. Elke latere tabel met privédata gebruikt `is_household_member` in zijn RLS-policy. De parameternaam is `target`, niet `household_id` — dat botst anders met de kolomnaam binnen de functie.
 
-**Voordat je begint:** de tests zetten de ingelogde gebruiker met
-`set_config('request.jwt.claim.sub', <uuid>, true)`. Geeft `auth.uid()` in jouw
-Supabase-versie toch `null` terug, gebruik dan de JSON-vorm:
+**Dit is de eerste taak met echte RLS-tests.** Ze gebruiken `withTx`, `actAs`
+en `enableRls` uit Task 2. Twee dingen die je een verkeerde diagnose kunnen
+bezorgen:
 
-```sql
-select set_config('request.jwt.claims', json_build_object('sub', <uuid>)::text, true)
-```
-
-Controleer dat eenmalig met `select auth.uid()` vóór je de tests schrijft; het
-scheelt je een halfuur zoeken bij elke volgende taak.
+- **`permission denied for table household`** betekent niet dat RLS werkt,
+  maar dat de rol `authenticated` geen `GRANT` heeft. Supabase zet standaard
+  privileges voor nieuwe tabellen in `public`; ontbreekt het toch, voeg dan
+  onderaan de migratie `grant select, insert, update, delete on <tabel> to
+  authenticated;` toe. Een RLS-test die iets mag zien en niets terugkrijgt is
+  het verwachte gedrag; een test die een permissiefout geeft is een
+  opzetprobleem.
+- **Volgorde binnen de transactie:** doe eerst je opzet (rijen aanmaken), dan
+  `actAs` en `enableRls`, dan pas de query die je wil bewijzen. Na `enableRls`
+  zit RLS je opzet in de weg.
 
 - [ ] **Step 1: De falende test schrijven**
 
@@ -1025,83 +1263,66 @@ Create `test/db/household.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withDb, resetDb } from './helpers'
-
-async function createUser(email: string): Promise<string> {
-  let id = ''
-  await withDb(async (sql) => {
-    const rows = await sql<{ id: string }[]>`
-      insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
-                              email_confirmed_at, created_at, updated_at)
-      values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
-              'authenticated', ${email}, '', now(), now(), now())
-      returning id
-    `
-    id = rows[0]!.id
-  })
-  return id
-}
+import { withDb, withTx, actAs, enableRls, createUser, resetDb } from './helpers'
 
 describe('huishoudens en RLS', () => {
   beforeEach(resetDb)
 
   it('laat een lid zijn eigen huishouden zien', async () => {
     const userId = await createUser('lid@example.com')
-    await withDb(async (sql) => {
-      const [hh] = await sql<{ id: string }[]>`
+    await withTx(async (tx) => {
+      const [hh] = await tx<{ id: string }[]>`
         insert into household (name) values ('Thuis') returning id
       `
-      await sql`
+      await tx`
         insert into household_member (household_id, user_id, role)
         values (${hh!.id}, ${userId}, 'owner')
       `
 
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      await sql`set local role authenticated`
-      const rows = await sql`select id from household`
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const rows = await tx`select id from household`
       expect(rows.length).toBe(1)
-      await sql`reset role`
     })
   })
 
   it('verbergt het huishouden van iemand anders', async () => {
     const mine = await createUser('ik@example.com')
     const theirs = await createUser('ander@example.com')
-    await withDb(async (sql) => {
-      const [hh] = await sql<{ id: string }[]>`
+    await withTx(async (tx) => {
+      const [hh] = await tx<{ id: string }[]>`
         insert into household (name) values ('Van iemand anders') returning id
       `
-      await sql`
+      await tx`
         insert into household_member (household_id, user_id, role)
         values (${hh!.id}, ${theirs}, 'owner')
       `
 
-      await sql`select set_config('request.jwt.claim.sub', ${mine}, true)`
-      await sql`set local role authenticated`
-      const rows = await sql`select id from household`
+      await actAs(tx, mine)
+      await enableRls(tx)
+      const rows = await tx`select id from household`
       expect(rows.length).toBe(0)
-      await sql`reset role`
     })
   })
 
   it('is_household_member klopt voor leden en niet-leden', async () => {
     const member = await createUser('wel@example.com')
     const outsider = await createUser('niet@example.com')
-    await withDb(async (sql) => {
-      const [hh] = await sql<{ id: string }[]>`
+    await withTx(async (tx) => {
+      const [hh] = await tx<{ id: string }[]>`
         insert into household (name) values ('Test') returning id
       `
-      await sql`
+      await tx`
         insert into household_member (household_id, user_id, role)
         values (${hh!.id}, ${member}, 'owner')
       `
 
-      await sql`select set_config('request.jwt.claim.sub', ${member}, true)`
-      const yes = await sql<{ r: boolean }[]>`select is_household_member(${hh!.id}) as r`
+      await actAs(tx, member)
+      const yes = await tx<{ r: boolean }[]>`select is_household_member(${hh!.id}) as r`
       expect(yes[0]!.r).toBe(true)
 
-      await sql`select set_config('request.jwt.claim.sub', ${outsider}, true)`
-      const no = await sql<{ r: boolean }[]>`select is_household_member(${hh!.id}) as r`
+      await actAs(tx, outsider)
+      const no = await tx<{ r: boolean }[]>`select is_household_member(${hh!.id}) as r`
       expect(no[0]!.r).toBe(false)
     })
   })
@@ -1223,7 +1444,7 @@ git commit -m "feat: huishoudens met RLS en de hulpfuncties voor lidmaatschap"
 - Create: `app/composables/useHousehold.ts`
 - Create: `supabase/migrations/<timestamp>_create_household_rpc.sql`
 - Modify: `i18n/locales/en.json`, `i18n/locales/nl.json`, `i18n/locales/fr.json`
-- Modify: `app/pages/index.vue`
+- Modify: `app/pages/app.vue`
 - Test: `test/db/create-household.test.ts`
 - Test: `e2e/onboarding.spec.ts`
 
@@ -1253,36 +1474,21 @@ Create `test/db/create-household.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withDb, resetDb } from './helpers'
-
-async function createUser(email: string): Promise<string> {
-  let id = ''
-  await withDb(async (sql) => {
-    const rows = await sql<{ id: string }[]>`
-      insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
-                              email_confirmed_at, created_at, updated_at)
-      values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
-              'authenticated', ${email}, '', now(), now(), now())
-      returning id
-    `
-    id = rows[0]!.id
-  })
-  return id
-}
+import { withDb, withTx, actAs, enableRls, createUser, resetDb } from './helpers'
 
 describe('create_household', () => {
   beforeEach(resetDb)
 
   it('maakt het huishouden en het eigenaarslidmaatschap samen aan', async () => {
     const userId = await createUser('starter@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      const [row] = await sql<{ create_household: string }[]>`
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      const [row] = await tx<{ create_household: string }[]>`
         select create_household('Thuis')
       `
       const id = row!.create_household
 
-      const members = await sql<{ role: string }[]>`
+      const members = await tx<{ role: string }[]>`
         select role from household_member where household_id = ${id} and user_id = ${userId}
       `
       expect(members[0]!.role).toBe('owner')
@@ -1291,16 +1497,61 @@ describe('create_household', () => {
 
   it('weigert een lege naam', async () => {
     const userId = await createUser('leeg@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      await expect(sql`select create_household('   ')`).rejects.toThrow()
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await expect(tx`select create_household('   ')`).rejects.toThrow()
+    })
+  })
+
+  // De twee tests hieronder vullen een gat uit taak 6: daar was de isolatie van
+  // household UPDATE/DELETE en household_member SELECT alleen door analyse
+  // vastgesteld, niet door een test. Hier kan het wel, want create_household
+  // geeft een tweede huishouden met lidmaatschap in een paar regels.
+
+  it('verbergt de ledenlijst van een ander huishouden', async () => {
+    const mine = await createUser('mijn-leden@example.com')
+    const theirs = await createUser('hun-leden@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, theirs)
+      await tx`select create_household('Hun huis')`
+
+      await actAs(tx, mine)
+      await enableRls(tx)
+      const rows = await tx`select user_id from household_member`
+      expect(rows.length).toBe(0)
+    })
+  })
+
+  it('laat een buitenstaander een huishouden niet hernoemen of verwijderen', async () => {
+    const outsider = await createUser('buitenstaander@example.com')
+    const owner = await createUser('eigenaar7@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Hun huis')`
+      const id = hh!.create_household
+
+      await actAs(tx, outsider)
+      await enableRls(tx)
+
+      // RLS geeft geen fout maar raakt nul rijen; dat is het bewijs.
+      const updated = await tx`update household set name = 'gekaapt' where id = ${id}`
+      expect(updated.count).toBe(0)
+
+      const deleted = await tx`delete from household where id = ${id}`
+      expect(deleted.count).toBe(0)
+
+      await tx`reset role`
+      const [row] = await tx<{ name: string }[]>`select name from household where id = ${id}`
+      expect(row!.name).toBe('Hun huis')
     })
   })
 
   it('weigert een oproep zonder ingelogde gebruiker', async () => {
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', '', true)`
-      await expect(sql`select create_household('Thuis')`).rejects.toThrow()
+    await withTx(async (tx) => {
+      await tx`select set_config('request.jwt.claim.sub', '', true)`
+      await expect(tx`select create_household('Thuis')`).rejects.toThrow()
     })
   })
 })
@@ -1487,7 +1738,7 @@ async function start() {
   error.value = ''
   try {
     await create(name.value)
-    await navigateTo(localePath('/'))
+    await navigateTo(localePath('/app'))
   } catch {
     error.value = t('auth.error')
   } finally {
@@ -1530,9 +1781,12 @@ async function start() {
 </template>
 ```
 
-- [ ] **Step 8: De startpagina laten doorsturen wanneer er geen huishouden is**
+- [ ] **Step 8: De app-startpagina laten doorsturen wanneer er geen huishouden is**
 
-Replace `app/pages/index.vue`:
+Dit is `app/pages/app.vue`, niet `index.vue` — die laatste is de publieke
+landingspagina uit Task 4 en blijft ongemoeid.
+
+Replace `app/pages/app.vue`:
 
 ```vue
 <script setup lang="ts">
@@ -1540,24 +1794,39 @@ const { t } = useI18n()
 const localePath = useLocalePath()
 const { households, activeId, refresh } = useHousehold()
 
-await refresh()
+const ready = ref(false)
 
-if (households.value.length === 0) {
-  await navigateTo(localePath('/onboarding'))
-}
+// In onMounted, niet op top-level await: activeId komt uit localStorage en is
+// tijdens SSR altijd null. Doorsturen hoort ook een clientbeslissing te zijn,
+// anders stuurt de server iemand weg op basis van halve informatie.
+onMounted(async () => {
+  await refresh()
+  if (households.value.length === 0) {
+    await navigateTo(localePath('/onboarding'))
+    return
+  }
+  ready.value = true
+})
 
 const active = computed(() => households.value.find((h) => h.id === activeId.value))
 </script>
 
 <template>
   <UContainer class="py-12">
-    <h1 class="text-3xl font-bold">{{ t('app.name') }}</h1>
-    <p class="mt-2 text-lg text-muted">{{ active?.name ?? t('app.tagline') }}</p>
+    <UProgress v-if="!ready" animation="carousel" />
+    <template v-else>
+      <h1 class="text-3xl font-bold">{{ t('app.name') }}</h1>
+      <p class="mt-2 text-lg text-muted">{{ active?.name }}</p>
+    </template>
   </UContainer>
 </template>
 ```
 
 - [ ] **Step 9: De e2e-test schrijven**
+
+De test logt in via een echte magic link, opgevraagd met de service-role
+sleutel. Dat is dezelfde flow als een gebruiker doorloopt, zonder testcode in
+de applicatie en zonder scripts vanaf een extern CDN in de pagina te laden.
 
 Create `e2e/onboarding.spec.ts`:
 
@@ -1568,55 +1837,53 @@ import { createClient } from '@supabase/supabase-js'
 const url = process.env.SUPABASE_URL!
 const serviceKey = process.env.SUPABASE_SERVICE_KEY!
 
+async function signIn(page: import('@playwright/test').Page, email: string) {
+  const admin = createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  await admin.auth.admin.createUser({ email, email_confirm: true })
+
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: 'magiclink',
+    email,
+    options: { redirectTo: 'http://localhost:3000/confirm' },
+  })
+  if (error) throw error
+
+  await page.goto(data.properties.action_link)
+  await page.waitForURL(/\/(confirm|onboarding|$)/)
+}
+
 test('een nieuwe gebruiker belandt op onboarding en kan een huishouden starten', async ({ page }) => {
-  const admin = createClient(url, serviceKey)
-  const email = `e2e-${Date.now()}@example.com`
-  const password = 'testwachtwoord123'
-
-  await admin.auth.admin.createUser({ email, password, email_confirm: true })
-
-  await page.goto('/login')
-  await page.evaluate(
-    async ([e, p]) => {
-      const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2')
-      const client = createClient(
-        (window as any).__SUPABASE_URL__,
-        (window as any).__SUPABASE_KEY__,
-      )
-      await client.auth.signInWithPassword({ email: e, password: p })
-    },
-    [email, password],
-  )
+  await signIn(page, `e2e-${Date.now()}@example.com`)
 
   await page.goto('/onboarding')
-  await page.getByLabel(/household name|naam/i).fill('Testhuis')
-  await page.getByRole('button', { name: /start/i }).click()
+  await page.getByLabel('Household name').fill('Testhuis')
+  await page.getByRole('button', { name: 'Start' }).click()
 
   await expect(page.getByText('Testhuis')).toBeVisible()
 })
+
+test('een gebruiker zonder huishouden wordt vanaf de app-startpagina doorgestuurd', async ({ page }) => {
+  await signIn(page, `e2e-redirect-${Date.now()}@example.com`)
+
+  await page.goto('/app')
+  await expect(page).toHaveURL(/\/onboarding/)
+})
+
+test('een ingelogde gebruiker op de landingspagina belandt in de app', async ({ page }) => {
+  await signIn(page, `e2e-landing-${Date.now()}@example.com`)
+
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/(app|onboarding)/)
+})
 ```
 
-Om `__SUPABASE_URL__` beschikbaar te maken in de browser, voeg toe aan `app/app.vue`:
-
-```vue
-<script setup lang="ts">
-const config = useRuntimeConfig()
-if (import.meta.client && import.meta.dev) {
-  ;(window as any).__SUPABASE_URL__ = config.public.supabase.url
-  ;(window as any).__SUPABASE_KEY__ = config.public.supabase.key
-}
-</script>
-
-<template>
-  <UApp>
-    <NuxtLayout>
-      <NuxtPage />
-    </NuxtLayout>
-  </UApp>
-</template>
-```
-
-De `import.meta.dev`-controle zorgt dat dit nooit in productie terechtkomt.
+De labels zijn exact, niet met een reguliere expressie: de standaardlocale is
+`en`, dus `/onboarding` toont de Engelse teksten uit `en.json`. Een test die
+`/household name|naam/i` accepteert verbergt juist het geval waarin de
+verkeerde taal geladen wordt.
 
 - [ ] **Step 10: De e2e-test draaien**
 
@@ -1624,7 +1891,12 @@ De `import.meta.dev`-controle zorgt dat dit nooit in productie terechtkomt.
 npm run test:e2e
 ```
 
-Verwacht: PASS. Draait hij niet, controleer dan of `.env` geladen wordt — voeg `import 'dotenv/config'` bovenaan `playwright.config.ts` toe en installeer `dotenv` als dev-afhankelijkheid.
+Verwacht: PASS, beide tests, plus de twee uit Task 4.
+
+Faalt `generateLink` op de vorm van het antwoord, log dan `data.properties` en
+gebruik het veld dat de actielink bevat. Faalt hij op ontbrekende
+omgevingsvariabelen, controleer dan dat `.env` bestaat en `SUPABASE_SERVICE_KEY`
+bevat — `playwright.config.ts` laadt het via `process.loadEnvFile()`.
 
 - [ ] **Step 11: Committen**
 
@@ -1654,22 +1926,7 @@ Create `test/db/household-invite.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withDb, resetDb } from './helpers'
-
-async function createUser(email: string): Promise<string> {
-  let id = ''
-  await withDb(async (sql) => {
-    const rows = await sql<{ id: string }[]>`
-      insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
-                              email_confirmed_at, created_at, updated_at)
-      values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
-              'authenticated', ${email}, '', now(), now(), now())
-      returning id
-    `
-    id = rows[0]!.id
-  })
-  return id
-}
+import { withDb, withTx, actAs, enableRls, createUser, resetDb } from './helpers'
 
 describe('uitnodigingen', () => {
   beforeEach(resetDb)
@@ -1678,17 +1935,17 @@ describe('uitnodigingen', () => {
     const owner = await createUser('eigenaar@example.com')
     const guest = await createUser('gast@example.com')
 
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${owner}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
-      const [inv] = await sql<{ create_invite: string }[]>`
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
+      const [inv] = await tx<{ create_invite: string }[]>`
         select create_invite(${hh!.create_household}::uuid, 7, 5)
       `
 
-      await sql`select set_config('request.jwt.claim.sub', ${guest}, true)`
-      await sql`select accept_invite(${inv!.create_invite})`
+      await actAs(tx, guest)
+      await tx`select accept_invite(${inv!.create_invite})`
 
-      const members = await sql<{ role: string }[]>`
+      const members = await tx<{ role: string }[]>`
         select role from household_member
         where household_id = ${hh!.create_household} and user_id = ${guest}
       `
@@ -1700,19 +1957,19 @@ describe('uitnodigingen', () => {
     const owner = await createUser('eig2@example.com')
     const guest = await createUser('gast2@example.com')
 
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${owner}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
-      const [inv] = await sql<{ create_invite: string }[]>`
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
+      const [inv] = await tx<{ create_invite: string }[]>`
         select create_invite(${hh!.create_household}::uuid, 7, 5)
       `
-      await sql`
+      await tx`
         update household_invite set expires_at = now() - interval '1 day'
         where token = ${inv!.create_invite}
       `
 
-      await sql`select set_config('request.jwt.claim.sub', ${guest}, true)`
-      await expect(sql`select accept_invite(${inv!.create_invite})`).rejects.toThrow()
+      await actAs(tx, guest)
+      await expect(tx`select accept_invite(${inv!.create_invite})`).rejects.toThrow()
     })
   })
 
@@ -1720,16 +1977,16 @@ describe('uitnodigingen', () => {
     const owner = await createUser('eig3@example.com')
     const guest = await createUser('gast3@example.com')
 
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${owner}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
-      const [inv] = await sql<{ create_invite: string }[]>`
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
+      const [inv] = await tx<{ create_invite: string }[]>`
         select create_invite(${hh!.create_household}::uuid, 7, 1)
       `
-      await sql`update household_invite set uses = 1 where token = ${inv!.create_invite}`
+      await tx`update household_invite set uses = 1 where token = ${inv!.create_invite}`
 
-      await sql`select set_config('request.jwt.claim.sub', ${guest}, true)`
-      await expect(sql`select accept_invite(${inv!.create_invite})`).rejects.toThrow()
+      await actAs(tx, guest)
+      await expect(tx`select accept_invite(${inv!.create_invite})`).rejects.toThrow()
     })
   })
 
@@ -1737,19 +1994,57 @@ describe('uitnodigingen', () => {
     const owner = await createUser('eig4@example.com')
     const member = await createUser('lid4@example.com')
 
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${owner}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
-      const [inv] = await sql<{ create_invite: string }[]>`
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
+      const [inv] = await tx<{ create_invite: string }[]>`
         select create_invite(${hh!.create_household}::uuid, 7, 5)
       `
 
-      await sql`select set_config('request.jwt.claim.sub', ${member}, true)`
-      await sql`select accept_invite(${inv!.create_invite})`
+      await actAs(tx, member)
+      await tx`select accept_invite(${inv!.create_invite})`
 
       await expect(
-        sql`select create_invite(${hh!.create_household}::uuid, 7, 5)`,
+        tx`select create_invite(${hh!.create_household}::uuid, 7, 5)`,
       ).rejects.toThrow()
+    })
+  })
+
+  // Deze test dekt een gat dat de review van taak 7 blootlegde: de
+  // `revoke all` / `grant execute`-regels onder aan de migratie worden door
+  // geen enkele test aangeraakt, omdat alle andere tests als superuser draaien.
+  // Verwijder die grant en de app breekt voor echte gebruikers terwijl de
+  // suite groen blijft.
+  it('alleen ingelogde gebruikers mogen de uitnodigingsfuncties aanroepen', async () => {
+    await withTx(async (tx) => {
+      const [row] = await tx<{ can_auth: boolean; can_anon: boolean }[]>`
+        select
+          has_function_privilege('authenticated', 'create_invite(uuid, int, int)', 'execute') as can_auth,
+          has_function_privilege('anon',          'create_invite(uuid, int, int)', 'execute') as can_anon
+      `
+      expect(row!.can_auth).toBe(true)
+      expect(row!.can_anon).toBe(false)
+    })
+  })
+
+  it('een gewoon lid ziet de uitnodigingen van het huishouden niet', async () => {
+    const owner = await createUser('eig6@example.com')
+    const member = await createUser('lid6@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
+      const [inv] = await tx<{ create_invite: string }[]>`
+        select create_invite(${hh!.create_household}::uuid, 7, 5)
+      `
+
+      await actAs(tx, member)
+      await tx`select accept_invite(${inv!.create_invite})`
+
+      // Vanaf hier onder RLS: alleen eigenaars mogen uitnodigingen zien.
+      await enableRls(tx)
+      const rows = await tx`select id from household_invite`
+      expect(rows.length).toBe(0)
     })
   })
 
@@ -1757,24 +2052,24 @@ describe('uitnodigingen', () => {
     const owner = await createUser('eig5@example.com')
     const guest = await createUser('gast5@example.com')
 
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${owner}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
-      const [inv] = await sql<{ create_invite: string }[]>`
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
+      const [inv] = await tx<{ create_invite: string }[]>`
         select create_invite(${hh!.create_household}::uuid, 7, 5)
       `
 
-      await sql`select set_config('request.jwt.claim.sub', ${guest}, true)`
-      await sql`select accept_invite(${inv!.create_invite})`
-      await sql`select accept_invite(${inv!.create_invite})`
+      await actAs(tx, guest)
+      await tx`select accept_invite(${inv!.create_invite})`
+      await tx`select accept_invite(${inv!.create_invite})`
 
-      const members = await sql`
+      const members = await tx`
         select 1 from household_member
         where household_id = ${hh!.create_household} and user_id = ${guest}
       `
       expect(members.length).toBe(1)
 
-      const [row] = await sql<{ uses: number }[]>`
+      const [row] = await tx<{ uses: number }[]>`
         select uses from household_invite where token = ${inv!.create_invite}
       `
       expect(row!.uses).toBe(1)
@@ -2013,7 +2308,7 @@ onMounted(async () => {
 
     <UAlert v-else color="error" :description="t('invite.failed')" />
 
-    <UButton v-if="state !== 'joining'" class="mt-6" :to="localePath('/')" block>
+    <UButton v-if="state !== 'joining'" class="mt-6" :to="localePath('/app')" block>
       {{ t('app.name') }}
     </UButton>
   </UContainer>
@@ -2121,6 +2416,7 @@ Pas het `supabase`-blok in `nuxt.config.ts` aan:
       login: '/login',
       callback: '/confirm',
       exclude: [
+        '/', '/nl', '/fr',
         '/login', '/confirm', '/invite/*',
         '/nl/login', '/nl/confirm', '/nl/invite/*',
         '/fr/login', '/fr/confirm', '/fr/invite/*',
@@ -2166,33 +2462,18 @@ Create `test/db/storage-place.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withDb, resetDb } from './helpers'
-
-async function createUser(email: string): Promise<string> {
-  let id = ''
-  await withDb(async (sql) => {
-    const rows = await sql<{ id: string }[]>`
-      insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
-                              email_confirmed_at, created_at, updated_at)
-      values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
-              'authenticated', ${email}, '', now(), now(), now())
-      returning id
-    `
-    id = rows[0]!.id
-  })
-  return id
-}
+import { withDb, withTx, actAs, enableRls, createUser, resetDb } from './helpers'
 
 describe('bewaarplaatsen', () => {
   beforeEach(resetDb)
 
   it('een nieuw huishouden krijgt drie standaardplaatsen', async () => {
     const userId = await createUser('plaats@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
 
-      const rows = await sql<{ kind: string }[]>`
+      const rows = await tx<{ kind: string }[]>`
         select kind from storage_place where household_id = ${hh!.create_household} order by kind
       `
       expect(rows.map((r) => r.kind)).toEqual(['freezer', 'fridge', 'pantry'])
@@ -2201,11 +2482,11 @@ describe('bewaarplaatsen', () => {
 
   it('weigert een onbekend soort', async () => {
     const userId = await createUser('soort@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
 
-      await expect(sql`
+      await expect(tx`
         insert into storage_place (household_id, name, kind)
         values (${hh!.create_household}, 'Zolder', 'attic')
       `).rejects.toThrow()
@@ -2216,15 +2497,14 @@ describe('bewaarplaatsen', () => {
     const mine = await createUser('mijn@example.com')
     const theirs = await createUser('hun@example.com')
 
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${theirs}, true)`
-      await sql`select create_household('Hun huis')`
+    await withTx(async (tx) => {
+      await actAs(tx, theirs)
+      await tx`select create_household('Hun huis')`
 
-      await sql`select set_config('request.jwt.claim.sub', ${mine}, true)`
-      await sql`set local role authenticated`
-      const rows = await sql`select id from storage_place`
+      await actAs(tx, mine)
+      await enableRls(tx)
+      const rows = await tx`select id from storage_place`
       expect(rows.length).toBe(0)
-      await sql`reset role`
     })
   })
 })
@@ -2422,8 +2702,13 @@ async function remove(id: string) {
   await load()
 }
 
-await refresh()
-await load()
+// In onMounted, niet op top-level await: activeId komt uit localStorage en is
+// tijdens SSR altijd null. Een top-level await zou de lijst leeg renderen en
+// hem na hydratie nooit opnieuw ophalen.
+onMounted(async () => {
+  await refresh()
+  await load()
+})
 </script>
 
 <template>
@@ -2488,59 +2773,41 @@ Create `test/db/permissions.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withDb, resetDb } from './helpers'
-
-async function createUser(email: string): Promise<string> {
-  let id = ''
-  await withDb(async (sql) => {
-    const rows = await sql<{ id: string }[]>`
-      insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
-                              email_confirmed_at, created_at, updated_at)
-      values ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
-              'authenticated', ${email}, '', now(), now(), now())
-      returning id
-    `
-    id = rows[0]!.id
-  })
-  return id
-}
+import { withDb, withTx, actAs, enableRls, createUser, resetDb } from './helpers'
 
 describe('rechten', () => {
   beforeEach(resetDb)
 
   it('een gebruiker kan zichzelf geen moderator maken', async () => {
     const userId = await createUser('sluw@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      await sql`set local role authenticated`
-      await expect(sql`
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      await expect(tx`
         update user_profile set role = 'moderator' where user_id = ${userId}
       `).rejects.toThrow()
-      await sql`reset role`
     })
   })
 
   it('een gebruiker kan zijn eigen vertrouwensniveau niet verhogen', async () => {
     const userId = await createUser('gretig@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      await sql`set local role authenticated`
-      await expect(sql`
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      await expect(tx`
         update user_profile set trust_level = 3 where user_id = ${userId}
       `).rejects.toThrow()
-      await sql`reset role`
     })
   })
 
   it('een gebruiker mag wel zijn weergavenaam wijzigen', async () => {
     const userId = await createUser('naam@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      await sql`set local role authenticated`
-      await sql`update user_profile set display_name = 'Steff' where user_id = ${userId}`
-      await sql`reset role`
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      await tx`update user_profile set display_name = 'Steff' where user_id = ${userId}`
 
-      const [row] = await sql<{ display_name: string }[]>`
+      const [row] = await tx<{ display_name: string }[]>`
         select display_name from user_profile where user_id = ${userId}
       `
       expect(row!.display_name).toBe('Steff')
@@ -2549,11 +2816,11 @@ describe('rechten', () => {
 
   it('de laatste eigenaar kan het huishouden niet verlaten', async () => {
     const userId = await createUser('laatste@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
 
-      await expect(sql`
+      await expect(tx`
         delete from household_member
         where household_id = ${hh!.create_household} and user_id = ${userId}
       `).rejects.toThrow()
@@ -2564,18 +2831,18 @@ describe('rechten', () => {
     const first = await createUser('een@example.com')
     const second = await createUser('twee@example.com')
 
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${first}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Thuis')`
+    await withTx(async (tx) => {
+      await actAs(tx, first)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
       const id = hh!.create_household
 
-      await sql`
+      await tx`
         insert into household_member (household_id, user_id, role)
         values (${id}, ${second}, 'owner')
       `
-      await sql`delete from household_member where household_id = ${id} and user_id = ${first}`
+      await tx`delete from household_member where household_id = ${id} and user_id = ${first}`
 
-      const rows = await sql`select 1 from household_member where household_id = ${id}`
+      const rows = await tx`select 1 from household_member where household_id = ${id}`
       expect(rows.length).toBe(1)
     })
   })
@@ -2649,6 +2916,14 @@ $$;
 create trigger prevent_last_owner_removal_trigger
   before delete on household_member
   for each row execute function prevent_last_owner_removal();
+
+-- `revoke all ... from public` haalt Supabase's eigen directe grant aan anon
+-- er niet af. Taak 8 ontdekte dat met een has_function_privilege-test:
+-- create_invite en accept_invite staan goed, create_household uit taak 7 niet.
+-- Niet uitbuitbaar, want de functie weigert zonder ingelogde gebruiker, maar
+-- de verdediging in de diepte werkt niet zoals bedoeld en het is inconsistent
+-- met de rest.
+revoke execute on function create_household(text) from anon;
 ```
 
 Twee dingen om te weten bij deze migratie:
@@ -2678,15 +2953,27 @@ Verwacht: PASS, alle vijf, plus alle eerdere databasetests.
 Voeg toe aan `test/db/permissions.test.ts`:
 
 ```ts
+  it('anon mag geen enkele huishoudfunctie aanroepen', async () => {
+    await withTx(async (tx) => {
+      const [row] = await tx<{ f: string; anon: boolean; auth: boolean }[]>`
+        select 'create_household' as f,
+               has_function_privilege('anon', 'create_household(text)', 'execute') as anon,
+               has_function_privilege('authenticated', 'create_household(text)', 'execute') as auth
+      `
+      expect(row!.anon).toBe(false)
+      expect(row!.auth).toBe(true)
+    })
+  })
+
   it('een huishouden opheffen werkt ondanks de eigenaarstrigger', async () => {
     const userId = await createUser('opheffen@example.com')
-    await withDb(async (sql) => {
-      await sql`select set_config('request.jwt.claim.sub', ${userId}, true)`
-      const [hh] = await sql<{ create_household: string }[]>`select create_household('Weg')`
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Weg')`
 
-      await sql`delete from household where id = ${hh!.create_household}`
+      await tx`delete from household where id = ${hh!.create_household}`
 
-      const rows = await sql`select 1 from household_member where household_id = ${hh!.create_household}`
+      const rows = await tx`select 1 from household_member where household_id = ${hh!.create_household}`
       expect(rows.length).toBe(0)
     })
   })
@@ -2728,9 +3015,454 @@ git commit -m "feat: rechtenmodel dichtgetimmerd met triggers voor rol en eigena
 
 ---
 
+### Task 11: De uitnodigingsflow werkend maken
+
+Taak 8 bouwde uitnodigingen, maar de functie heeft aan geen van beide kanten een
+werkende ingang. De review stelde twee gaten vast die allebei buiten taak 8's
+bestandenlijst vielen:
+
+- De uitnodigingspagina stuurt een uitgelogde bezoeker naar
+  `/login?redirect=/invite/<token>`, maar `login.vue` en `confirm.vue` lezen die
+  parameter nooit. Een nieuwe gebruiker — de meest voorkomende bezoeker van een
+  uitnodigingslink — logt in en belandt op `/app`, zonder foutmelding en zonder
+  lidmaatschap.
+- `HouseholdInvites.vue` bestaat maar wordt door geen enkele pagina gebruikt, dus
+  een eigenaar kan niet eens een link aanmaken.
+
+**Files:**
+- Modify: `app/pages/login.vue`
+- Modify: `app/pages/confirm.vue`
+- Modify: `app/components/HouseholdInvites.vue`
+- Modify: `app/pages/app.vue`
+- Modify: `app/pages/settings/places.vue`
+- Modify: `e2e/onboarding.spec.ts` (helpers exporteren)
+- Create: `app/pages/settings/household.vue`
+- Create: `e2e/invite.spec.ts`
+- Modify: `i18n/locales/en.json`, `i18n/locales/nl.json`, `i18n/locales/fr.json`
+
+**Interfaces:**
+- Consumes: `useHousehold()` uit Task 7, `create_invite` en `accept_invite` uit Task 8
+- Produces: geen nieuwe interfaces; deze taak maakt bestaande werkend
+
+- [ ] **Step 1: De helpers uit Task 7 exporteerbaar maken**
+
+`e2e/onboarding.spec.ts` bevat `signIn()` en de Mailpit-hulpfunctie die de
+magic link ophaalt. Zet `export` voor allebei, zodat `e2e/invite.spec.ts` ze kan
+importeren. Kopieer ze niet — twee versies van een inloghelper lopen gegarandeerd
+uit elkaar.
+
+Wijzig niets aan hun werking.
+
+- [ ] **Step 2: De falende e2e-test schrijven**
+
+Create `e2e/invite.spec.ts`:
+
+```ts
+import { test, expect } from '@playwright/test'
+import { signIn, readLatestMagicLink } from './onboarding.spec'
+
+test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, browser }) => {
+  // Eigenaar maakt een huishouden en een uitnodigingslink.
+  await signIn(page, `e2e-owner-${Date.now()}@example.com`)
+  await page.goto('/onboarding')
+  await page.getByLabel('Household name').fill('Uitnodigingshuis')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByText('Uitnodigingshuis')).toBeVisible()
+
+  await page.goto('/settings/household')
+  await page.getByRole('button', { name: 'Create invitation link' }).click()
+  const link = await page.getByRole('textbox', { name: 'Invitation link' }).inputValue()
+  expect(link).toContain('/invite/')
+
+  // Een verse browsercontext: iemand die nergens is ingelogd.
+  const guestContext = await browser.newContext()
+  const guest = await guestContext.newPage()
+  const guestEmail = `e2e-guest-${Date.now()}@example.com`
+
+  await guest.goto(link)
+  await expect(guest).toHaveURL(/\/login/)
+
+  await guest.getByLabel(/email/i).fill(guestEmail)
+  await guest.getByRole('button', { name: /link/i }).click()
+  await expect(guest.getByText(/inbox/i)).toBeVisible()
+
+  // De echte magic link uit Mailpit hoort terug te leiden naar de uitnodiging,
+  // niet naar /app.
+  const magicLink = await readLatestMagicLink(guestEmail)
+  await guest.goto(magicLink)
+
+  await expect(guest.getByText('Uitnodigingshuis')).toBeVisible()
+  await guestContext.close()
+})
+```
+
+- [ ] **Step 3: De test draaien en zien dat hij faalt**
+
+```bash
+npm run test:e2e -- invite
+```
+
+Verwacht: FAIL. `/settings/household` bestaat niet, dus de knop wordt nooit
+gevonden.
+
+- [ ] **Step 4: De redirect door login.vue heen dragen**
+
+Voeg in `app/pages/login.vue` bovenaan `<script setup>` toe:
+
+```ts
+const route = useRoute()
+
+// Alleen interne paden. Zonder deze controle kan iemand
+// ?redirect=https://kwaadaardig.example in een link zetten en jouw inlogpagina
+// gebruiken om mensen naar een phishingsite te sturen.
+const redirectTo = computed(() => {
+  const value = route.query.redirect
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+    ? value
+    : null
+})
+```
+
+En vervang in `submit()` de aanroep van `signInWithOtp` door:
+
+```ts
+  const target = new URL('/confirm', window.location.origin)
+  if (redirectTo.value) target.searchParams.set('redirect', redirectTo.value)
+
+  const { error: authError } = await supabase.auth.signInWithOtp({
+    email: email.value,
+    options: { emailRedirectTo: target.toString() },
+  })
+```
+
+De controle op `startsWith('/')` én niet `'//'` is niet optioneel: `//evil.com`
+is een protocol-relatieve URL en gaat gewoon naar buiten.
+
+- [ ] **Step 5: De redirect consumeren in confirm.vue**
+
+Replace `app/pages/confirm.vue`:
+
+```vue
+<script setup lang="ts">
+const user = useSupabaseUser()
+const route = useRoute()
+const localePath = useLocalePath()
+
+// Zelfde controle als in login.vue: een query-parameter is invoer van buiten,
+// ook als hij van onze eigen inlogpagina lijkt te komen.
+const target = computed(() => {
+  const value = route.query.redirect
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+    ? value
+    : localePath('/app')
+})
+
+watch(user, (value) => {
+  if (value) navigateTo(target.value)
+}, { immediate: true })
+</script>
+
+<template>
+  <UContainer class="py-12">
+    <UProgress animation="carousel" />
+  </UContainer>
+</template>
+```
+
+- [ ] **Step 6: Vertaalsleutels toevoegen**
+
+`en.json`:
+
+```json
+  "householdSettings": {
+    "title": "Household",
+    "invitations": "Invitations",
+    "error": "That did not work. Please try again."
+  }
+```
+
+`nl.json`:
+
+```json
+  "householdSettings": {
+    "title": "Huishouden",
+    "invitations": "Uitnodigingen",
+    "error": "Dat is niet gelukt. Probeer het opnieuw."
+  }
+```
+
+`fr.json`:
+
+```json
+  "householdSettings": {
+    "title": "Menage",
+    "invitations": "Invitations",
+    "error": "Cela a echoue. Veuillez reessayer."
+  }
+```
+
+De Franse tekst staat hier zonder accenten om kopieerfouten te vermijden; zet in
+het bestand zelf de juiste accenten: `Ménage`, `Cela a échoué. Veuillez
+réessayer.`
+
+- [ ] **Step 7: De instellingenpagina maken**
+
+Create `app/pages/settings/household.vue`:
+
+```vue
+<script setup lang="ts">
+const { t } = useI18n()
+const { activeId, refresh } = useHousehold()
+
+const ready = ref(false)
+
+onMounted(async () => {
+  await refresh()
+  ready.value = true
+})
+</script>
+
+<template>
+  <UContainer class="max-w-lg py-12">
+    <h1 class="text-2xl font-bold">{{ t('householdSettings.title') }}</h1>
+
+    <section class="mt-8">
+      <h2 class="mb-3 font-semibold">{{ t('householdSettings.invitations') }}</h2>
+      <UProgress v-if="!ready" animation="carousel" />
+      <HouseholdInvites v-else-if="activeId" :household-id="activeId" />
+    </section>
+  </UContainer>
+</template>
+```
+
+- [ ] **Step 8: Foutafhandeling en een vindbaar linkveld in HouseholdInvites**
+
+`create()` en `revoke()` gooien nu elke fout stilletjes weg. Voeg bovenaan
+`<script setup>` toe:
+
+```ts
+const error = ref('')
+```
+
+Vervang beide functies:
+
+```ts
+async function create() {
+  pending.value = true
+  error.value = ''
+  const { error: rpcError } = await supabase.rpc('create_invite', {
+    target: props.householdId,
+    valid_days: 7,
+    uses: 5,
+  })
+  if (rpcError) error.value = t('householdSettings.error')
+  else await load()
+  pending.value = false
+}
+
+async function revoke(id: string) {
+  error.value = ''
+  const { error: deleteError } = await supabase.from('household_invite').delete().eq('id', id)
+  if (deleteError) error.value = t('householdSettings.error')
+  else await load()
+}
+```
+
+Toon de fout in de template, direct onder de aanmaakknop:
+
+```vue
+    <UAlert v-if="error" color="error" :description="error" />
+```
+
+Vervang de `<p>` met de link door een leesbaar invoerveld met een toegankelijk
+label, zodat een schermlezer hem benoemt en de e2e-test hem vindt:
+
+```vue
+          <UInput
+            :model-value="linkFor(invite.token)"
+            aria-label="Invitation link"
+            readonly
+            class="w-full font-mono text-xs"
+          />
+```
+
+- [ ] **Step 8b: Stille fouten wegwerken in de twee andere pagina's**
+
+Dit is hetzelfde gebrek als in stap 8, op twee plekken die de reviews van taak
+7 en taak 9 aanwezen. Het hoort hier omdat het één patroon is en niet drie
+losse gevallen.
+
+**`app/pages/app.vue`** — `onMounted` heeft geen `try`/`catch`. Faalt
+`refresh()`, dan wordt `ready` nooit `true` en staart de gebruiker voor altijd
+naar een laadbalk. Dit is de startpagina van de app, dus iedereen raakt hem.
+
+Replace the `<script setup>` block:
+
+```ts
+const { t } = useI18n()
+const localePath = useLocalePath()
+const { households, activeId, refresh } = useHousehold()
+
+const ready = ref(false)
+const failed = ref(false)
+
+onMounted(async () => {
+  try {
+    await refresh()
+  } catch {
+    failed.value = true
+    return
+  }
+  if (households.value.length === 0) {
+    await navigateTo(localePath('/onboarding'))
+    return
+  }
+  ready.value = true
+})
+
+const active = computed(() => households.value.find((h) => h.id === activeId.value))
+```
+
+And the template:
+
+```vue
+<template>
+  <UContainer class="py-12">
+    <UAlert v-if="failed" color="error" :description="t('householdSettings.error')" />
+    <UProgress v-else-if="!ready" animation="carousel" />
+    <template v-else>
+      <h1 class="text-3xl font-bold">{{ t('app.name') }}</h1>
+      <p class="mt-2 text-lg text-muted">{{ active?.name }}</p>
+    </template>
+  </UContainer>
+</template>
+```
+
+**`app/pages/settings/places.vue`** — `load()`, `add()` and `remove()` all
+discard the `error` Supabase returns, so an RLS denial or a network failure
+looks exactly like success with nothing happening.
+
+Add to `<script setup>`:
+
+```ts
+const error = ref('')
+```
+
+Replace the three functions:
+
+```ts
+async function load() {
+  if (!activeId.value) return
+  const { data, error: loadError } = await supabase
+    .from('storage_place')
+    .select('id, name, kind')
+    .eq('household_id', activeId.value)
+    .order('created_at')
+  if (loadError) {
+    error.value = t('householdSettings.error')
+    return
+  }
+  error.value = ''
+  places.value = (data ?? []) as Place[]
+}
+
+async function add() {
+  if (!activeId.value || !name.value.trim()) return
+  const { error: insertError } = await supabase.from('storage_place').insert({
+    household_id: activeId.value,
+    name: name.value.trim(),
+    kind: kind.value,
+  })
+  if (insertError) {
+    error.value = t('householdSettings.error')
+    return
+  }
+  name.value = ''
+  await load()
+}
+
+async function remove(id: string) {
+  const { error: deleteError } = await supabase.from('storage_place').delete().eq('id', id)
+  if (deleteError) {
+    error.value = t('householdSettings.error')
+    return
+  }
+  await load()
+}
+```
+
+Show it in the template, above the form:
+
+```vue
+    <UAlert v-if="error" class="mt-4" color="error" :description="error" />
+```
+
+While you are here, the `USelect` for `kind` has no label, which makes it
+unreadable for a screen reader and leaves the `places.kind` translation key
+dead. Give it one:
+
+```vue
+      <USelect v-model="kind" :items="kinds" value-key="value" :aria-label="t('places.kind')" />
+```
+
+- [ ] **Step 9: De test draaien en zien dat hij slaagt**
+
+```bash
+npm run test:e2e
+```
+
+Verwacht: PASS, alle bestaande tests plus de nieuwe uitnodigingsflow.
+
+- [ ] **Step 10: De open-redirectbescherming apart testen**
+
+Dit is beveiligingsgedrag en krijgt dus een eigen test. Voeg toe aan
+`e2e/invite.spec.ts`:
+
+```ts
+test('een externe redirect wordt genegeerd', async ({ page }) => {
+  const email = `e2e-redirect-${Date.now()}@example.com`
+
+  await page.goto('/login?redirect=https://example.com/phishing')
+  await page.getByLabel(/email/i).fill(email)
+  await page.getByRole('button', { name: /link/i }).click()
+  await expect(page.getByText(/inbox/i)).toBeVisible()
+
+  const magicLink = await readLatestMagicLink(email)
+  expect(magicLink).not.toContain('example.com')
+
+  // En protocol-relatief mag evenmin.
+  const email2 = `e2e-redirect2-${Date.now()}@example.com`
+  await page.goto('/login?redirect=//example.com/phishing')
+  await page.getByLabel(/email/i).fill(email2)
+  await page.getByRole('button', { name: /link/i }).click()
+  await expect(page.getByText(/inbox/i)).toBeVisible()
+
+  const magicLink2 = await readLatestMagicLink(email2)
+  expect(magicLink2).not.toContain('example.com')
+})
+```
+
+```bash
+npm run test:e2e -- invite
+```
+
+Verwacht: PASS, beide tests.
+
+- [ ] **Step 11: Committen**
+
+```bash
+git add -A
+git commit -m "feat: uitnodigingsflow werkend van link tot lidmaatschap"
+```
+
+---
+
 ## Wat je na dit plan hebt
 
 Een uitgerolde app op Cloudflare Workers waarin je kan inloggen met een magic link, een huishouden kan starten of via een uitnodigingslink lid worden, bewaarplaatsen kan beheren, en waarin de scheiding tussen huishoudens bewezen dicht is. Drietalig, met een test die de locales gelijk houdt.
+
+Uitnodigen werkt end-to-end: een eigenaar maakt een link, een wildvreemde
+klikt hem, logt in en is lid — zonder de uitnodiging onderweg te verliezen.
 
 Nog geen producten, geen voorraad, geen bonnen. Dat is plan 2 en verder.
 

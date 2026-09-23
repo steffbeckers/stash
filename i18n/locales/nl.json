@@ -1,0 +1,61 @@
+{
+  "app": {
+    "name": "Stash",
+    "tagline": "Weet wat je in huis hebt"
+  },
+  "nav": {
+    "inventory": "Voorraad",
+    "settings": "Instellingen"
+  },
+  "auth": {
+    "signIn": "Inloggen",
+    "email": "E-mailadres",
+    "sendLink": "Stuur me een link",
+    "linkSent": "Kijk in je mailbox — we stuurden je een inloglink.",
+    "signOut": "Uitloggen",
+    "error": "Er ging iets mis. Probeer het opnieuw."
+  },
+  "landing": {
+    "getStarted": "Aan de slag"
+  },
+  "appHome": {
+    "title": "Je huishouden"
+  },
+  "onboarding": {
+    "title": "Aan de slag",
+    "startTitle": "Start een huishouden",
+    "startHelp": "Hou bij wat je in huis hebt, alleen of samen met anderen.",
+    "name": "Naam van het huishouden",
+    "start": "Starten",
+    "joinTitle": "Word lid van een huishouden",
+    "joinHelp": "Iemand kan je een uitnodigingslink sturen."
+  },
+  "invite": {
+    "joining": "Bezig met lid worden…",
+    "success": "Je bent lid geworden van {name}.",
+    "failed": "Deze uitnodiging is niet meer geldig.",
+    "create": "Uitnodigingslink maken",
+    "linkLabel": "Uitnodigingslink",
+    "copy": "Link kopiëren",
+    "copied": "Gekopieerd",
+    "revoke": "Intrekken",
+    "expiresOn": "Geldig tot {date}",
+    "usesLeft": "Nog {count} keer te gebruiken"
+  },
+  "places": {
+    "title": "Bewaarplaatsen",
+    "add": "Plaats toevoegen",
+    "name": "Naam",
+    "kind": "Soort",
+    "pantry": "Voorraadkast",
+    "fridge": "Koelkast",
+    "freezer": "Vriezer",
+    "other": "Andere",
+    "delete": "Verwijderen"
+  },
+  "householdSettings": {
+    "title": "Huishouden",
+    "invitations": "Uitnodigingen",
+    "error": "Dat is niet gelukt. Probeer het opnieuw."
+  }
+}

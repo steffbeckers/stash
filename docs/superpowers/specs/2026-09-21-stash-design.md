@@ -24,7 +24,9 @@ de prijs die je betaalt; de opbrengst is:
 - weten waar een product op dit moment het goedkoopst is
 - weten wat je kan klaarmaken met wat er ligt
 
-Dat ordent het ontwerp: de voorraad is het startscherm, niet de camera.
+Dat ordent het ontwerp: binnen de app is de voorraad het startscherm, niet de
+camera. Daarbuiten staat een publieke landingspagina die uitlegt waarom je zou
+meedoen — zie §5.
 
 ### De gedeelde inspanning
 
@@ -502,9 +504,36 @@ Zie §7.
 ### Onboarding
 
 ```
-e-mail + magic link  ->  verifieer  ->  Start een huishouden
-                                     of Word lid  (uitnodigingslink)
+/  landingspagina (publiek)  ->  /login  ->  verifieer  ->  Start een huishouden
+                                                         of Word lid (uitnodigingslink)
+                                                              |
+                                                              v
+                                                        /app  (de app zelf)
 ```
+
+**De homepage is publiek en blijft dat.** Wie op `stash.app` belandt krijgt
+uitleg over wat de app doet, niet een inlogscherm. Pas wie besluit hem te
+gebruiken klikt door naar `/login`.
+
+Dat is geen cosmetisch verschil. Een app die je bij het eerste bezoek om een
+e-mailadres vraagt zonder te zeggen waarvoor, verliest de mensen die je nodig
+hebt om de gedeelde catalogus te vullen. En een publieke landingspagina is
+meteen de plek waar het verhaal van de gedeelde inspanning verteld kan worden.
+
+De app zelf leeft onder `/app`. Wie ingelogd is en `/` bezoekt gaat
+automatisch door naar `/app` — dagelijkse gebruikers horen de uitlegpagina niet
+elke keer te zien.
+
+| Route | Toegang |
+|---|---|
+| `/` | Publiek — landingspagina met uitleg |
+| `/login`, `/confirm` | Publiek |
+| `/invite/<token>` | Publiek; vraagt zelf om inloggen en keert daarna terug |
+| **al het overige** | **Afgeschermd, standaard** |
+
+Die laatste regel is de belangrijkste: afscherming staat aan tenzij een route
+expliciet wordt uitgezonderd. Een pagina vergeten af te schermen is een
+ernstiger fout dan er per ongeluk een af te schermen.
 
 De uitnodigingslink is `/invite/<token>` met een vervaldatum en een beperkt
 aantal gebruiken, zodat een gelekte link in een familiegroep geen open deur

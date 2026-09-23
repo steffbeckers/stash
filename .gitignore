@@ -1,0 +1,34 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+
+# Cloudflare / Wrangler
+.wrangler
+
+# Playwright
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+.superpowers/
+
+# Local env files
+.env
+.env.*
+!.env.example

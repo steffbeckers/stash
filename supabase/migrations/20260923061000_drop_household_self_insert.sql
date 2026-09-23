@@ -1,0 +1,14 @@
+-- Bevinding 3 van de eindreview van plan 1.
+--
+-- Deze policy liet elke ingelogde gebruiker rechtstreeks een `household`-rij
+-- invoegen, buiten create_household() om. Zo'n rij krijgt geen lid (de
+-- policy voegt alleen de household-rij toe, geen household_member-rij), dus
+-- de aanmaker kan hem daarna nooit meer lezen of verwijderen: onbereikbare
+-- rommel, onbeperkt herhaalbaar.
+--
+-- create_household() is security definer en eigendom van de tabeleigenaar,
+-- dus RLS is niet van toepassing binnen die functie — deze policy voegt daar
+-- niets aan toe. Ze dichtdoen kost niets: create-household.test.ts blijft
+-- groen, want dat pad loopt via de functie, niet via een rechtstreekse
+-- insert.
+drop policy "iedereen mag een huishouden starten" on household;

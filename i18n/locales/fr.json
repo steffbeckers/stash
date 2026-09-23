@@ -1,0 +1,61 @@
+{
+  "app": {
+    "name": "Stash",
+    "tagline": "Sachez ce que vous avez chez vous"
+  },
+  "nav": {
+    "inventory": "Stock",
+    "settings": "Paramètres"
+  },
+  "auth": {
+    "signIn": "Se connecter",
+    "email": "Adresse e-mail",
+    "sendLink": "Envoyez-moi un lien",
+    "linkSent": "Consultez votre boîte mail — nous vous avons envoyé un lien de connexion.",
+    "signOut": "Se déconnecter",
+    "error": "Une erreur s'est produite. Veuillez réessayer."
+  },
+  "landing": {
+    "getStarted": "Commencer"
+  },
+  "appHome": {
+    "title": "Votre ménage"
+  },
+  "onboarding": {
+    "title": "Commencer",
+    "startTitle": "Créer un ménage",
+    "startHelp": "Suivez ce que vous avez chez vous, seul ou avec d'autres.",
+    "name": "Nom du ménage",
+    "start": "Créer",
+    "joinTitle": "Rejoindre un ménage",
+    "joinHelp": "Quelqu'un peut vous envoyer un lien d'invitation."
+  },
+  "invite": {
+    "joining": "Adhésion en cours…",
+    "success": "Vous avez rejoint {name}.",
+    "failed": "Cette invitation n'est plus valable.",
+    "create": "Créer un lien d'invitation",
+    "linkLabel": "Lien d'invitation",
+    "copy": "Copier le lien",
+    "copied": "Copié",
+    "revoke": "Révoquer",
+    "expiresOn": "Valable jusqu'au {date}",
+    "usesLeft": "Encore {count} utilisations"
+  },
+  "places": {
+    "title": "Lieux de rangement",
+    "add": "Ajouter un lieu",
+    "name": "Nom",
+    "kind": "Type",
+    "pantry": "Garde-manger",
+    "fridge": "Réfrigérateur",
+    "freezer": "Congélateur",
+    "other": "Autre",
+    "delete": "Supprimer"
+  },
+  "householdSettings": {
+    "title": "Ménage",
+    "invitations": "Invitations",
+    "error": "Cela a échoué. Veuillez réessayer."
+  }
+}

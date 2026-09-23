@@ -1,0 +1,21 @@
+{
+  // Voor deployen: NUXT_PUBLIC_SUPABASE_URL, NUXT_PUBLIC_SUPABASE_KEY en
+  // NUXT_PUBLIC_APP_VERSION moeten als Worker-secret gezet zijn (bv.
+  // `wrangler secret put NUXT_PUBLIC_SUPABASE_URL`) vóórdat je `npm run
+  // deploy` draait. Dit bestand declareert bewust geen `vars` met die namen:
+  // `nuxt build` bakt runtimeConfig.public in vanuit .env op de buildmachine,
+  // en alleen deze exacte NUXT_PUBLIC_-namen worden op runtime nog
+  // overschreven door Nitro. Zie de sectie "Deploying" in README.md.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stash",
+  "main": ".output/server/index.mjs",
+  "compatibility_date": "2026-09-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".output/public"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
