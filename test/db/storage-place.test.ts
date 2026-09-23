@@ -91,4 +91,76 @@ describe('bewaarplaatsen', () => {
       expect(rows.length).toBe(0)
     })
   })
+
+  // De UPDATE- en DELETE-policies op storage_place hadden geen enkele test.
+  // Ze zijn niet fout, maar ongetoetst: niets zou opvallen als ze wegvielen.
+  // Eerst het positieve geval, anders is een suite die alles weigert ook groen.
+  it('een lid mag een bewaarplaats hernoemen en verwijderen', async () => {
+    const userId = await createUser('lid-plaats@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Huis')`
+      await enableRls(tx)
+
+      const renamed = await tx`
+        update storage_place set name = 'Kelder'
+        where household_id = ${hh!.create_household} and kind = 'pantry'
+        returning id
+      `
+      expect(renamed.length).toBe(1)
+
+      const removed = await tx`
+        delete from storage_place
+        where household_id = ${hh!.create_household} and kind = 'freezer'
+        returning id
+      `
+      expect(removed.length).toBe(1)
+    })
+  })
+
+  // Een UPDATE of DELETE met een WHERE of RETURNING leest kolommen, en dan
+  // past PostgreSQL óók de SELECT-policy toe. Zo'n test wordt dus groen
+  // gehouden door de leespolicy en bewijst niets over de schrijfpolicy: met de
+  // UPDATE-policy op using(true) bleef hij gewoon groen. Pas toen de
+  // SELECT-policy óók openging, werd hij rood.
+  //
+  // Een kale schrijfopdracht zonder WHERE en zonder RETURNING leest niets. Dan
+  // beslist alleen de USING van de schrijfpolicy welke rijen meegaan — en dat
+  // is precies de aanval die telt: niet één rij kapen, maar de hele tabel.
+  it('een buitenstaander kan andermans bewaarplaatsen niet overschrijven', async () => {
+    const owner = await createUser('eigenaar-wijzig@example.com')
+    const outsider = await createUser('indringer-wijzig@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      await tx`select create_household('Huis')`
+
+      await actAs(tx, outsider)
+      await enableRls(tx)
+      await tx`update storage_place set name = 'Gekaapt'`
+
+      await tx`reset role`
+      const rows = await tx<{ name: string }[]>`select name from storage_place`
+      expect(rows.length).toBe(3)
+      expect(rows.some((r) => r.name === 'Gekaapt')).toBe(false)
+    })
+  })
+
+  it('een buitenstaander kan andermans bewaarplaatsen niet leegvegen', async () => {
+    const owner = await createUser('eigenaar-verwijder@example.com')
+    const outsider = await createUser('indringer-verwijder@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      await tx`select create_household('Huis')`
+
+      await actAs(tx, outsider)
+      await enableRls(tx)
+      await tx`delete from storage_place`
+
+      await tx`reset role`
+      const [count] = await tx<{ n: number }[]>`select count(*)::int as n from storage_place`
+      expect(count!.n).toBe(3)
+    })
+  })
 })
