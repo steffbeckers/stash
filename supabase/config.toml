@@ -159,6 +159,11 @@ site_url = "http://localhost:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
+# The word "exact" above is Supabase's stock comment and no longer tells the whole
+# story: this list accepts glob patterns, and the entry below uses one so that the
+# magic link can come back to any path under the dev server (/confirm, /nl/confirm,
+# /fr/confirm, /invite/<token>, ...). Listing them one by one would mean editing this
+# file for every new authenticated route.
 additional_redirect_urls = ["http://localhost:3000/*"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
