@@ -76,7 +76,17 @@ describe('rechten', () => {
   // zijn geneste cascades op dezelfde diepte. Dit pad is vandaag al bereikbaar
   // via Supabase Studio's "Delete user" of auth.admin.deleteUser(), zonder
   // app-code.
-  it('het verwijderen van de account van de enige eigenaar wordt geblokkeerd', async () => {
+  //
+  // Bevinding 5 van de eindreview van plan 1: dit blokkeren is een bewuste
+  // maar TIJDELIJKE toestand, geen einddoel. Elke onboardende gebruiker
+  // wordt eigenaar van een huishouden, dus accountverwijdering loopt hier
+  // vandaag voor vrijwel iedereen op vast. Plan 8's accountverwijderingsflow
+  // moet het huishouden verwijderen vóór het account, niet tegen deze
+  // trigger aanlopen — zie de databasecomment op prevent_last_owner_removal
+  // (toegevoegd in 20260923062000_document_last_owner_block_as_interim.sql)
+  // en spec §8. Een toekomstige lezer mag uit deze testnaam niet concluderen
+  // dat blokkeren het gewenste eindgedrag is.
+  it('het verwijderen van de account van de enige eigenaar wordt tijdelijk geblokkeerd (plan 8 moet eerst het huishouden verwijderen)', async () => {
     const userId = await createUser('enige-eigenaar@example.com')
     await withTx(async (tx) => {
       await actAs(tx, userId)
