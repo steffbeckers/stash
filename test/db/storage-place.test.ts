@@ -55,4 +55,40 @@ describe('bewaarplaatsen', () => {
       expect(rows.length).toBe(0)
     })
   })
+
+  // Bevinding 2 van de eindreview: dit is, anders dan household_member en
+  // household_invite hierboven/verderop, geen "bescherming door afwezigheid"
+  // — storage_place heeft al een echte INSERT-policy
+  // ("leden mogen bewaarplaatsen aanmaken", with check is_household_member).
+  // Er was er alleen nog geen test die een buitenstaander expliciet
+  // tegenhoudt; deze test dekt dat.
+  it('een buitenstaander kan geen bewaarplaats aanmaken voor andermans huishouden', async () => {
+    const owner = await createUser('eigenaar-plaats@example.com')
+    const outsider = await createUser('indringer-plaats@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Huis')`
+
+      await actAs(tx, outsider)
+      await enableRls(tx)
+      // Savepoint isoleert de mislukte insert van de rest van de transactie:
+      // zie create-household.test.ts voor de volledige uitleg.
+      await expect(
+        tx.savepoint(
+          (sp) => sp`
+            insert into storage_place (household_id, name, kind)
+            values (${hh!.create_household}, 'Indringerskast', 'pantry')
+          `,
+        ),
+      ).rejects.toThrow()
+
+      await tx`reset role`
+      const rows = await tx`
+        select 1 from storage_place
+        where household_id = ${hh!.create_household} and name = 'Indringerskast'
+      `
+      expect(rows.length).toBe(0)
+    })
+  })
 })

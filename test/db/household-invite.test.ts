@@ -131,6 +131,68 @@ describe('uitnodigingen', () => {
     })
   })
 
+  // Bevinding 2 van de eindreview: household_invite heeft geen INSERT- of
+  // UPDATE-policy. Schrijven wordt vandaag alleen geweigerd omdat er geen
+  // enkele policy bestaat die het toestaat ("bescherming door afwezigheid"),
+  // niet omdat een policy het expliciet blokkeert — dat verdwijnt stilletjes
+  // zodra iemand ooit een permissieve policy toevoegt. Deze twee tests dekken
+  // dat gat.
+
+  it('een buitenstaander kan geen uitnodiging met een zelfgekozen token invoegen', async () => {
+    const owner = await createUser('eig-token@example.com')
+    const outsider = await createUser('indringer-token@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Huis')`
+
+      await actAs(tx, outsider)
+      await enableRls(tx)
+      // Savepoint isoleert de mislukte insert van de rest van de transactie:
+      // zie create-household.test.ts voor de volledige uitleg.
+      await expect(
+        tx.savepoint(
+          (sp) => sp`
+            insert into household_invite (household_id, token, created_by, expires_at, max_uses)
+            values (${hh!.create_household}, 'zelfgekozen-token', ${outsider}, now() + interval '7 days', 5)
+          `,
+        ),
+      ).rejects.toThrow()
+
+      await tx`reset role`
+      const rows = await tx`select 1 from household_invite where token = 'zelfgekozen-token'`
+      expect(rows.length).toBe(0)
+    })
+  })
+
+  it('een buitenstaander kan het gebruikstelraam van een uitnodiging niet resetten', async () => {
+    const owner = await createUser('eig-uses@example.com')
+    const outsider = await createUser('indringer-uses@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Huis')`
+      const [inv] = await tx<{ create_invite: string }[]>`
+        select create_invite(${hh!.create_household}::uuid, 7, 1)
+      `
+      await tx`update household_invite set uses = 1 where token = ${inv!.create_invite}`
+
+      await actAs(tx, outsider)
+      await enableRls(tx)
+      // Geen INSERT/UPDATE-policy op household_invite: RLS geeft hier geen
+      // fout maar raakt nul rijen, net als bij de UPDATE/DELETE-voorbeelden
+      // op household elders in deze suite.
+      const updated = await tx`update household_invite set uses = 0 where token = ${inv!.create_invite}`
+      expect(updated.count).toBe(0)
+
+      await tx`reset role`
+      const [row] = await tx<{ uses: number }[]>`
+        select uses from household_invite where token = ${inv!.create_invite}
+      `
+      expect(row!.uses).toBe(1)
+    })
+  })
+
   it('tweemaal accepteren verandert niets', async () => {
     const owner = await createUser('eig5@example.com')
     const guest = await createUser('gast5@example.com')

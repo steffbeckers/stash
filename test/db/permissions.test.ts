@@ -49,6 +49,12 @@ describe('rechten', () => {
     const userId = await createUser('laatste@example.com')
     await withTx(async (tx) => {
       await actAs(tx, userId)
+      // Bevinding 2 van de eindreview: deze test draaide als superuser en gaf
+      // dus nooit dekking aan de DELETE-policy op household_member. Onder RLS
+      // is deze delete wel toegestaan (user_id = auth.uid(), zelf verlaten
+      // mag altijd) — de trigger blokkeert hem daarna alsnog, wat hier bewezen
+      // wordt.
+      await enableRls(tx)
       const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
 
       // Zelfde reden als hierboven: savepoint isoleert de mislukte delete.
@@ -98,12 +104,23 @@ describe('rechten', () => {
       const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
       const id = hh!.create_household
 
+      // Rechtstreeks als superuser: er is geen INSERT-policy op
+      // household_member (bevinding 2), dus een tweede eigenaar toevoegen kan
+      // sowieso niet via de app. Dit is opzet, geen deel van wat hieronder
+      // bewezen wordt — vandaar vóór enableRls.
       await tx`
         insert into household_member (household_id, user_id, role)
         values (${id}, ${second}, 'owner')
       `
-      await tx`delete from household_member where household_id = ${id} and user_id = ${first}`
 
+      // Vanaf hier onder RLS: dit is de operatie die de test bewijst. Zonder
+      // enableRls draaide dit als superuser en gaf de test nooit dekking aan
+      // de DELETE-policy op household_member.
+      await enableRls(tx)
+      const deleted = await tx`delete from household_member where household_id = ${id} and user_id = ${first}`
+      expect(deleted.count).toBe(1)
+
+      await tx`reset role`
       const rows = await tx`select 1 from household_member where household_id = ${id}`
       expect(rows.length).toBe(1)
     })
@@ -139,6 +156,11 @@ describe('rechten', () => {
     const userId = await createUser('opheffen@example.com')
     await withTx(async (tx) => {
       await actAs(tx, userId)
+      // Bevinding 2 van de eindreview: zonder enableRls draaide dit als
+      // superuser. Onder RLS moet zowel de DELETE-policy op household
+      // (eigenaar) als die op household_member (cascade) deze operatie
+      // toelaten — dat wordt hier nu ook echt bewezen, niet alleen aangenomen.
+      await enableRls(tx)
       const [hh] = await tx<{ create_household: string }[]>`select create_household('Weg')`
 
       await tx`delete from household where id = ${hh!.create_household}`
