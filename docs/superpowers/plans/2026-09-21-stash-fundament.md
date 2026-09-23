@@ -3033,6 +3033,8 @@ bestandenlijst vielen:
 - Modify: `app/pages/login.vue`
 - Modify: `app/pages/confirm.vue`
 - Modify: `app/components/HouseholdInvites.vue`
+- Modify: `app/pages/app.vue`
+- Modify: `app/pages/settings/places.vue`
 - Modify: `e2e/onboarding.spec.ts` (helpers exporteren)
 - Create: `app/pages/settings/household.vue`
 - Create: `e2e/invite.spec.ts`
@@ -3282,6 +3284,125 @@ label, zodat een schermlezer hem benoemt en de e2e-test hem vindt:
             readonly
             class="w-full font-mono text-xs"
           />
+```
+
+- [ ] **Step 8b: Stille fouten wegwerken in de twee andere pagina's**
+
+Dit is hetzelfde gebrek als in stap 8, op twee plekken die de reviews van taak
+7 en taak 9 aanwezen. Het hoort hier omdat het één patroon is en niet drie
+losse gevallen.
+
+**`app/pages/app.vue`** — `onMounted` heeft geen `try`/`catch`. Faalt
+`refresh()`, dan wordt `ready` nooit `true` en staart de gebruiker voor altijd
+naar een laadbalk. Dit is de startpagina van de app, dus iedereen raakt hem.
+
+Replace the `<script setup>` block:
+
+```ts
+const { t } = useI18n()
+const localePath = useLocalePath()
+const { households, activeId, refresh } = useHousehold()
+
+const ready = ref(false)
+const failed = ref(false)
+
+onMounted(async () => {
+  try {
+    await refresh()
+  } catch {
+    failed.value = true
+    return
+  }
+  if (households.value.length === 0) {
+    await navigateTo(localePath('/onboarding'))
+    return
+  }
+  ready.value = true
+})
+
+const active = computed(() => households.value.find((h) => h.id === activeId.value))
+```
+
+And the template:
+
+```vue
+<template>
+  <UContainer class="py-12">
+    <UAlert v-if="failed" color="error" :description="t('householdSettings.error')" />
+    <UProgress v-else-if="!ready" animation="carousel" />
+    <template v-else>
+      <h1 class="text-3xl font-bold">{{ t('app.name') }}</h1>
+      <p class="mt-2 text-lg text-muted">{{ active?.name }}</p>
+    </template>
+  </UContainer>
+</template>
+```
+
+**`app/pages/settings/places.vue`** — `load()`, `add()` and `remove()` all
+discard the `error` Supabase returns, so an RLS denial or a network failure
+looks exactly like success with nothing happening.
+
+Add to `<script setup>`:
+
+```ts
+const error = ref('')
+```
+
+Replace the three functions:
+
+```ts
+async function load() {
+  if (!activeId.value) return
+  const { data, error: loadError } = await supabase
+    .from('storage_place')
+    .select('id, name, kind')
+    .eq('household_id', activeId.value)
+    .order('created_at')
+  if (loadError) {
+    error.value = t('householdSettings.error')
+    return
+  }
+  error.value = ''
+  places.value = (data ?? []) as Place[]
+}
+
+async function add() {
+  if (!activeId.value || !name.value.trim()) return
+  const { error: insertError } = await supabase.from('storage_place').insert({
+    household_id: activeId.value,
+    name: name.value.trim(),
+    kind: kind.value,
+  })
+  if (insertError) {
+    error.value = t('householdSettings.error')
+    return
+  }
+  name.value = ''
+  await load()
+}
+
+async function remove(id: string) {
+  const { error: deleteError } = await supabase.from('storage_place').delete().eq('id', id)
+  if (deleteError) {
+    error.value = t('householdSettings.error')
+    return
+  }
+  await load()
+}
+```
+
+Show it in the template, above the form:
+
+```vue
+    <UAlert v-if="error" class="mt-4" color="error" :description="error" />
+```
+
+While you are here, the `USelect` for `kind` has no label, which makes it
+unreadable for a screen reader and leaves the `places.kind` translation key
+dead. Give it one:
+
+```vue
+      <USelect v-model="kind" :items="kinds" value-key="value" :aria-label="t('places.kind')" />
 ```
 
 - [ ] **Step 9: De test draaien en zien dat hij slaagt**
