@@ -24,7 +24,26 @@ export async function withDb(fn: (sql: Sql) => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * Bevinding 8 van de eindreview van plan 1: resetDb() truncate't elke tabel
+ * in public plus auth.users cascade, tegen wat DATABASE_URL toevallig ook
+ * is. Plan 8 heeft .env straks nodig gericht op het gehoste project, en dan
+ * vernietigt één `npm run test:db` dat project. Deze guard weigert te
+ * draaien tegen alles behalve een lokale host.
+ */
+export function assertLocalDatabase(databaseUrl: string): void {
+  const host = new URL(databaseUrl).hostname
+  if (host !== 'localhost' && host !== '127.0.0.1') {
+    throw new Error(
+      `resetDb() weigert te draaien tegen host "${host}". Dit commando truncate't elke tabel in ` +
+        `public plus auth.users cascade — alleen "localhost" of "127.0.0.1" zijn toegestaan. ` +
+        'Wijs DATABASE_URL in .env naar de lokale Supabase-stack (npx supabase start).',
+    )
+  }
+}
+
 export async function resetDb(): Promise<void> {
+  assertLocalDatabase(url!)
   await withDb(async (sql) => {
     const tables = await sql<{ tablename: string }[]>`
       select tablename from pg_tables where schemaname = 'public'
