@@ -28,7 +28,7 @@ const active = computed(() => households.value.find((h) => h.id === activeId.val
     <UAlert v-if="failed" color="error" :description="t('householdSettings.error')" />
     <UProgress v-else-if="!ready" animation="carousel" />
     <template v-else>
-      <h1 class="text-3xl font-bold">{{ t('app.name') }}</h1>
+      <h1 class="text-3xl font-bold">{{ t('appHome.title') }}</h1>
       <p class="mt-2 text-lg text-muted">{{ active?.name }}</p>
     </template>
   </UContainer>

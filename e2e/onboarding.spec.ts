@@ -25,3 +25,22 @@ test('een ingelogde gebruiker op de landingspagina belandt in de app', async ({ 
   await page.goto('/')
   await expect(page).toHaveURL(/\/(app|onboarding)/)
 })
+
+// Bevinding 6 van de eindreview: er was geen navigatie naar de
+// instellingenpagina's — de e2e-tests bereikten ze tot nu toe alleen met
+// page.goto(). Deze test klikt in plaats daarvan echt door de nav.
+test('een ingelogde gebruiker bereikt beide instellingenpagina\'s via de navigatie', async ({ page }) => {
+  await signIn(page, `e2e-nav-${Date.now()}@example.com`)
+
+  await page.goto('/onboarding')
+  await waitForHydration(page)
+  await page.getByLabel('Household name').fill('Navigatiehuis')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByText('Navigatiehuis')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Settings' }).click()
+  await expect(page).toHaveURL(/\/settings\/household/)
+
+  await page.getByRole('link', { name: 'Storage places' }).click()
+  await expect(page).toHaveURL(/\/settings\/places/)
+})

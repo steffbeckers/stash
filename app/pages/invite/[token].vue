@@ -41,7 +41,10 @@ onMounted(async () => {
 
 <template>
   <UContainer class="max-w-md py-12">
-    <UProgress v-if="state === 'joining'" animation="carousel" />
+    <div v-if="state === 'joining'">
+      <UProgress animation="carousel" />
+      <p class="mt-3 text-center text-sm text-muted">{{ t('invite.joining') }}</p>
+    </div>
 
     <UAlert
       v-else-if="state === 'done'"
