@@ -96,6 +96,11 @@ that's already public by design. `wrangler secret put` is used here purely
 to get them into the Worker's environment reliably; declaring them as plain
 `vars` in `wrangler.jsonc` instead works the same way.
 
-`DATABASE_URL` and `SUPABASE_SERVICE_KEY` are not part of this list — they
-are only used locally by the test harness and are never read by the app
-itself.
+`DATABASE_URL` and `NUXT_SUPABASE_SECRET_KEY` are not part of this list.
+`DATABASE_URL` is used only by the test harness. The secret key is read by
+`@nuxtjs/supabase` into server-side runtime config, but nothing in this app
+asks for the service role yet, so it never leaves the server and is not
+needed for a deploy.
+
+(The module also accepts the older `SUPABASE_SERVICE_KEY` name, but warns on
+every run that it is deprecated in favour of the key above.)
