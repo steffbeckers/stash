@@ -148,6 +148,59 @@ describe('rechten', () => {
     'accept_invite(text)',
   ]
 
+  // De trigger dekte alleen DELETE. Een UPDATE die de rol van de laatste
+  // eigenaar op 'member' zet laat exact hetzelfde onbestuurbare huishouden
+  // achter. Vandaag is dat pad niet bereikbaar, maar alleen omdat
+  // household_member geen UPDATE-policy heeft - bescherming door afwezigheid,
+  // die stil verdwijnt zodra de promoveer-route uit de spec er komt.
+  //
+  // Deze test meet daarom de trigger en niet de policy: hij draait zonder
+  // enableRls, zodat RLS de rij niet wegfiltert en de invariant zelf aan het
+  // woord komt.
+  it('de laatste eigenaar kan niet via een update gedegradeerd worden', async () => {
+    const userId = await createUser('degradatie@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
+
+      // Savepoint isoleert de mislukte update: zie create-household.test.ts.
+      await expect(
+        tx.savepoint(
+          (sp) => sp`
+            update household_member set role = 'member'
+            where household_id = ${hh!.create_household} and user_id = ${userId}
+          `,
+        ),
+      ).rejects.toThrow()
+    })
+  })
+
+  // De tegenhanger: degraderen mag wel zodra er een tweede eigenaar is.
+  // Zonder deze test zou een trigger die simpelweg elke roldaling weigert
+  // ook groen zijn, en dan blokkeert hij straks de promoveer-route.
+  it('een eigenaar mag wel gedegradeerd worden als er een tweede eigenaar is', async () => {
+    const first = await createUser('eerste-eigenaar@example.com')
+    const second = await createUser('tweede-eigenaar@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, first)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Thuis')`
+      const householdId = hh!.create_household
+
+      await tx`
+        insert into household_member (household_id, user_id, role)
+        values (${householdId}, ${second}, 'owner')
+      `
+
+      const changed = await tx`
+        update household_member set role = 'member'
+        where household_id = ${householdId} and user_id = ${first}
+        returning user_id
+      `
+      expect(changed.length).toBe(1)
+    })
+  })
+
   it('anon mag geen enkele huishoudfunctie aanroepen', async () => {
     await withTx(async (tx) => {
       for (const fn of householdFunctions) {
