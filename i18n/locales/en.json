@@ -51,5 +51,10 @@
     "freezer": "Freezer",
     "other": "Other",
     "delete": "Delete"
+  },
+  "householdSettings": {
+    "title": "Household",
+    "invitations": "Invitations",
+    "error": "That did not work. Please try again."
   }
 }

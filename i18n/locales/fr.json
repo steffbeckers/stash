@@ -51,5 +51,10 @@
     "freezer": "Congélateur",
     "other": "Autre",
     "delete": "Supprimer"
+  },
+  "householdSettings": {
+    "title": "Ménage",
+    "invitations": "Invitations",
+    "error": "Cela a échoué. Veuillez réessayer."
   }
 }

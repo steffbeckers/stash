@@ -1,4 +1,16 @@
 <script setup lang="ts">
+const route = useRoute()
+
+// Alleen interne paden. Zonder deze controle kan iemand
+// ?redirect=https://kwaadaardig.example in een link zetten en jouw inlogpagina
+// gebruiken om mensen naar een phishingsite te sturen.
+const redirectTo = computed(() => {
+  const value = route.query.redirect
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+    ? value
+    : null
+})
+
 const { t } = useI18n()
 const supabase = useSupabaseClient()
 
@@ -10,9 +22,12 @@ const pending = ref(false)
 async function submit() {
   pending.value = true
   error.value = ''
+  const target = new URL('/confirm', window.location.origin)
+  if (redirectTo.value) target.searchParams.set('redirect', redirectTo.value)
+
   const { error: authError } = await supabase.auth.signInWithOtp({
     email: email.value,
-    options: { emailRedirectTo: `${window.location.origin}/confirm` },
+    options: { emailRedirectTo: target.toString() },
   })
   pending.value = false
   if (authError) {

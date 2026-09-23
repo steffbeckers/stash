@@ -15,6 +15,7 @@ interface Invite {
 const invites = ref<Invite[]>([])
 const pending = ref(false)
 const copied = ref<string | null>(null)
+const error = ref('')
 
 async function load() {
   const { data } = await supabase
@@ -27,18 +28,22 @@ async function load() {
 
 async function create() {
   pending.value = true
-  await supabase.rpc('create_invite', {
+  error.value = ''
+  const { error: rpcError } = await supabase.rpc('create_invite', {
     target: props.householdId,
     valid_days: 7,
     uses: 5,
   })
-  await load()
+  if (rpcError) error.value = t('householdSettings.error')
+  else await load()
   pending.value = false
 }
 
 async function revoke(id: string) {
-  await supabase.from('household_invite').delete().eq('id', id)
-  await load()
+  error.value = ''
+  const { error: deleteError } = await supabase.from('household_invite').delete().eq('id', id)
+  if (deleteError) error.value = t('householdSettings.error')
+  else await load()
 }
 
 function linkFor(token: string): string {
@@ -60,10 +65,17 @@ onMounted(load)
       {{ t('invite.create') }}
     </UButton>
 
+    <UAlert v-if="error" color="error" :description="error" />
+
     <UCard v-for="invite in invites" :key="invite.id">
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0 text-sm">
-          <p class="truncate font-mono">{{ linkFor(invite.token) }}</p>
+          <UInput
+            :model-value="linkFor(invite.token)"
+            aria-label="Invitation link"
+            readonly
+            class="w-full font-mono text-xs"
+          />
           <p class="text-muted">
             {{ t('invite.expiresOn', { date: d(new Date(invite.expires_at), 'short') }) }} ·
             {{ t('invite.usesLeft', { count: invite.max_uses - invite.uses }) }}

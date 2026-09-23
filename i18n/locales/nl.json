@@ -51,5 +51,10 @@
     "freezer": "Vriezer",
     "other": "Andere",
     "delete": "Verwijderen"
+  },
+  "householdSettings": {
+    "title": "Huishouden",
+    "invitations": "Uitnodigingen",
+    "error": "Dat is niet gelukt. Probeer het opnieuw."
   }
 }
