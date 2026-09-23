@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Een nieuwe push op dezelfde branch maakt de vorige run overbodig.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, types, unit- en databasetests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Bewust vóór `npm ci`: postinstall draait `nuxt prepare`, en
+      # @nuxtjs/supabase wil op dát moment al een URL en een sleutel zien.
+      # Zonder draaiende stack faalt dus de installatie, niet de tests — een
+      # foutmelding die nergens naar wijst.
+      - name: Supabase-stack starten
+        run: supabase start
+
+      - name: Supabase-gegevens in de omgeving zetten
+        run: |
+          supabase status -o env > "$RUNNER_TEMP/supabase.env"
+          value() { grep "^$1=" "$RUNNER_TEMP/supabase.env" | cut -d= -f2- | tr -d '"'; }
+          {
+            echo "SUPABASE_URL=$(value API_URL)"
+            echo "SUPABASE_KEY=$(value ANON_KEY)"
+            echo "NUXT_SUPABASE_SECRET_KEY=$(value SERVICE_ROLE_KEY)"
+            echo "DATABASE_URL=$(value DB_URL)"
+          } >> "$GITHUB_ENV"
+
+      - name: Afhankelijkheden installeren
+        run: npm ci
+
+      - name: Linter
+        run: npm run lint
+
+      - name: Typecontrole
+        run: npm run typecheck
+
+      - name: Unittests
+        run: npm run test
+
+      # De databasetests truncaten elke tabel; de guard in test/db/helpers.ts
+      # laat dat alleen toe tegen een lokale host. De stack hierboven draait op
+      # 127.0.0.1, dus dat klopt hier.
+      - name: Databasetests
+        run: npm run test:db
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Supabase-stack starten
+        run: supabase start
+
+      - name: Supabase-gegevens in de omgeving zetten
+        run: |
+          supabase status -o env > "$RUNNER_TEMP/supabase.env"
+          value() { grep "^$1=" "$RUNNER_TEMP/supabase.env" | cut -d= -f2- | tr -d '"'; }
+          {
+            echo "SUPABASE_URL=$(value API_URL)"
+            echo "SUPABASE_KEY=$(value ANON_KEY)"
+            echo "NUXT_SUPABASE_SECRET_KEY=$(value SERVICE_ROLE_KEY)"
+            echo "DATABASE_URL=$(value DB_URL)"
+          } >> "$GITHUB_ENV"
+
+      - name: Afhankelijkheden installeren
+        run: npm ci
+
+      - name: Browser installeren
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-endtests
+        run: npm run test:e2e
+
+      - name: Rapport bewaren bij een mislukking
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
