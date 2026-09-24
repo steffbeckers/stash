@@ -95,11 +95,19 @@ other direction: `supabase db push` failed, and because it runs first nothing
 was deployed — production kept serving the previous version instead of code
 written against a schema that had not landed.
 
-The migration step runs `supabase link` before `db push`, and that is not
-redundant even though `db push` takes a `--project-ref`. Without linking, the
-CLI connects straight to `db.<ref>.supabase.co`, which newer projects expose
-over IPv6 only, while GitHub runners are IPv4-only. `link` sets up the pooler
-connection instead.
+The migration step talks to Postgres directly over `--db-url`, deliberately
+bypassing the management API. Going through it needs a personal access token,
+and `supabase link` fetches project keys and settings this pipeline has no use
+for — each permission it lacks costs a failed deploy. Two of those in a row is
+what moved this to a connection string, which needs exactly one secret and
+reaches exactly one database.
+
+That URL must be the **session pooler** (port 5432), for two separate reasons.
+The direct host `db.<ref>.supabase.co` is IPv6-only on newer projects while
+GitHub runners are IPv4-only — the very first deploy died there. And the
+transaction pooler (6543) is wrong for migrations, which need session state.
+Copy it from Project Settings → Database → Connection string → Session pooler,
+and percent-encode the password if it contains anything exotic.
 
 `npm run deploy` still works from a laptop and is the escape hatch when CI
 cannot run. Prefer the pipeline: a manual deploy bakes in whatever is in your
@@ -144,8 +152,7 @@ Repository **secrets**:
 | Secret | Where to get it |
 | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | dash.cloudflare.com → My Profile → API Tokens → template "Edit Cloudflare Workers" |
-| `SUPABASE_ACCESS_TOKEN` | supabase.com/dashboard/account/tokens |
-| `SUPABASE_DB_PASSWORD` | the project's database password (Project Settings → Database; reset it there if it was never recorded) |
+| `SUPABASE_DB_URL` | Project Settings → Database → Connection string → **Session pooler**, with the password filled in |
 
 ### Auth redirect URLs
 
