@@ -61,16 +61,35 @@ export async function readLatestMagicLink(email: string): Promise<string> {
   throw new Error(`Geen magic link gevonden voor ${email} in Mailpit`)
 }
 
-// Nuxt dev serveert ongebundeld: 'load' vuurt ruim voordat Vue hydrateert en
-// @submit.prevent aansluit. Zonder deze wacht raakt een klik op een
-// submit-knop een kale, niet-JS formulier-submit (paginareload met de
-// velden als querystring) in plaats van de Vue-handler. Zelfde signaal als
-// e2e/login.spec.ts gebruikt.
+// Nuxt dev serveert ongebundeld, dus Vue hydrateert merkbaar later dan
+// 'load'. Klik je daarvóór op een submit-knop, dan is @submit.prevent nog
+// niet aangesloten en doet de browser een kale HTML-submit: de pagina laadt
+// opnieuw met de velden in de querystring, en de test loopt vast op een
+// scherm dat er bijna goed uitziet.
+//
+// Er is geen publieke API die zegt "deze knop is gehydrateerd".
+// __vueParentComponent is een ongedocumenteerde Vue-interne: runtime-dom
+// hangt hem aan een element zodra de component eraan gekoppeld is. Dat is
+// bewust een koppeling aan een implementatiedetail, omdat het alternatief
+// (een vaste pauze) traag én onbetrouwbaar is.
+//
+// Verdwijnt de eigenschap bij een Vue-majorupgrade, dan valt deze functie om
+// in een timeout. De melding hieronder zorgt dat de volgende lezer niet gaat
+// zoeken in de applicatie maar hier uitkomt.
 export async function waitForHydration(page: import('@playwright/test').Page) {
-  await page.waitForFunction(() => {
-    const button = document.querySelector('button[type="submit"]')
-    return !!button && '__vueParentComponent' in button
-  })
+  try {
+    await page.waitForFunction(() => {
+      const button = document.querySelector('button[type="submit"]')
+      return !!button && '__vueParentComponent' in button
+    })
+  } catch (cause) {
+    throw new Error(
+      'Hydratie niet waargenomen binnen de timeout. Deze wacht steunt op de ' +
+        'Vue-interne __vueParentComponent; is Vue geüpgraded, controleer dan ' +
+        'of die eigenschap nog bestaat (zie e2e/helpers.ts).',
+      { cause },
+    )
+  }
 }
 
 export async function signIn(
