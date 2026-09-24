@@ -1,12 +1,9 @@
 <script setup lang="ts">
 const { t } = useI18n()
 const localePath = useLocalePath()
-const user = useSupabaseUser()
 
 // Dagelijkse gebruikers horen de uitlegpagina niet elke keer te zien.
-watch(user, (value) => {
-  if (value) navigateTo(localePath('/app'))
-}, { immediate: true })
+useRedirectWhenSignedIn(localePath('/app'))
 </script>
 
 <template>

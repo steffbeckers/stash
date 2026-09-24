@@ -90,6 +90,12 @@ npx wrangler secret put NUXT_PUBLIC_APP_VERSION
 - `NUXT_PUBLIC_APP_VERSION` — the version being deployed (without this, the
   Worker falls back to the `.env` value used at build time, typically `dev`)
 
+`NUXT_PUBLIC_APP_VERSION` is optioneel maar hoort bij een echte deploy gezet te
+worden, bijvoorbeeld op de commit-SHA. Zonder die variabele valt
+`nuxt.config.ts` terug op de letterlijke waarde `dev`, en dan rapporteert
+`/api/health` versie `dev` in productie — misleidend zodra er meer dan één
+versie tegelijk draait.
+
 These three are safe to expose this way: all of them end up in
 `runtimeConfig.public` and ship to the browser regardless, the same anon key
 that's already public by design. `wrangler secret put` is used here purely
