@@ -136,19 +136,37 @@ En als nieuwe functie, vóór de `return`:
 
 ```ts
   async function loadMembers(householdId: string): Promise<void> {
-    const { data, error } = await supabase
+    const { data: memberRows, error: memberError } = await supabase
       .from('household_member')
-      .select('user_id, role, user_profile(display_name)')
+      .select('user_id, role')
       .eq('household_id', householdId)
       .order('joined_at')
 
-    if (error) throw error
+    if (memberError) throw memberError
 
-    members.value = (data ?? []).map((row) => ({
+    // household_member.user_id en user_profile.user_id wijzen allebei
+    // onafhankelijk naar auth.users; er is geen foreign key tussen de twee
+    // tabellen onderling. PostgREST kan een geneste select dus niet
+    // vertalen (PGRST200), vandaar twee queries die hier worden samengevoegd.
+    const userIds = (memberRows ?? []).map((row) => row.user_id)
+    const displayNameByUserId = new Map<string, string | null>()
+
+    if (userIds.length > 0) {
+      const { data: profileRows, error: profileError } = await supabase
+        .from('user_profile')
+        .select('user_id, display_name')
+        .in('user_id', userIds)
+
+      if (profileError) throw profileError
+
+      for (const row of profileRows ?? []) {
+        displayNameByUserId.set(row.user_id, row.display_name)
+      }
+    }
+
+    members.value = (memberRows ?? []).map((row) => ({
       userId: row.user_id,
-      // user_profile is hier een enkele rij, geen array: household_member
-      // wijst er met een foreign key naar. De gegenereerde types weten dat.
-      displayName: row.user_profile?.display_name ?? null,
+      displayName: displayNameByUserId.get(row.user_id) ?? null,
       // role is een tekstkolom met een check-constraint, geen Postgres-enum,
       // dus de gegenereerde types geven `string`. Zelfde cast als bij
       // Household['role'] hierboven.
@@ -1099,7 +1117,7 @@ Controleer dat deze tests echt iets bewaken. Verander in `e2e/helpers.ts` de fun
 
 Run: `npm run test:e2e -- locales`
 
-Expected: FAIL — beide tests, omdat de URL de taalprefix mist. Blijven ze groen, dan controleert de test de taal niet en moet de assertie scherper.
+Expected: FAIL — beide tests. Ze vallen om op `getByLabel`: zonder prefix rendert de app in het Engels, en het Nederlandse respectievelijk Franse label staat er dan niet. De URL-assertie merkt het niet, want met `prefix()` leeg wordt de reguliere expressie `/` en die matcht alles. Blijft een test groen, dan controleert hij de taal helemaal niet en moet de assertie scherper.
 
 Herstellen: zet `prefix` met de hand terug op de vorm uit stap 1. Niet `git checkout` gebruiken — de rest van stap 1 staat nog niet in git en zou daarmee verdwijnen.
 
