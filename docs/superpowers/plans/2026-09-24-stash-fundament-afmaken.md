@@ -538,11 +538,20 @@ Run: `npx supabase db reset && npm run test:db -- member-role`
 
 Expected: PASS, acht tests.
 
-- [ ] **Step 5: De bescherming falsifiëren**
+- [ ] **Step 5: Committen wat er nu staat**
+
+Committen gebeurt vóór de falsificatie, niet erna. De volgende stap haalt tijdelijk regels uit het migratiebestand en zet ze daarna terug met `git checkout` — en dat werkt alleen op een bestand dat git al kent. Zou je pas na de falsificatie committen, dan is het bestand op dat moment nog untracked en faalt het herstel.
+
+```bash
+git add supabase/migrations/<timestamp>_set_member_role.sql test/db/member-role.test.ts
+git commit -m "feat: set_member_role om iemand tot eigenaar te promoveren"
+```
+
+- [ ] **Step 6: De bescherming falsifiëren**
 
 Dit is verplicht (zie Global Constraints). Haal de eigenaarscontrole tijdelijk weg en stel vast dat de suite dat merkt.
 
-Verwijder in het zojuist geschreven migratiebestand deze drie regels:
+Verwijder in het migratiebestand deze drie regels:
 
 ```sql
   if not is_household_owner(target_household) then
@@ -557,7 +566,7 @@ npx supabase db reset
 npm run test:db -- member-role
 ```
 
-Expected: FAIL op `een gewoon lid kan zichzelf niet promoveren` én `een buitenstaander kan niemand promoveren`. Blijft één van die twee groen, dan test hij niet wat hij beweert — repareer de test vóór je verdergaat.
+Expected: FAIL op `een gewoon lid kan zichzelf niet promoveren` én `een buitenstaander kan niemand promoveren`. Blijft één van die twee groen, dan test hij niet wat hij beweert — repareer de test vóór je verdergaat, en commit die reparatie.
 
 Herstellen:
 
@@ -567,16 +576,11 @@ npx supabase db reset
 npm run test:db
 ```
 
-Doe hetzelfde nog een keer voor de `not found`-controle: haal die drie regels weg, draai de tests, en stel vast dat `weigert iemand die geen lid is` rood wordt.
+Doe hetzelfde nog een keer voor de `not found`-controle: haal die drie regels weg, draai de tests, stel vast dat `weigert iemand die geen lid is` rood wordt, en herstel op dezelfde manier.
+
+Controleer daarna met `git status` dat de werkboom schoon is: de falsificatie mag geen spoor achterlaten.
 
 Noteer in het taakrapport welke tests bij welke verwijdering rood werden.
-
-- [ ] **Step 6: Committen wat er nu staat**
-
-```bash
-git add supabase/migrations/<timestamp>_set_member_role.sql test/db/member-role.test.ts
-git commit -m "feat: set_member_role om iemand tot eigenaar te promoveren"
-```
 
 - [ ] **Step 7: De vertaalsleutels toevoegen**
 
