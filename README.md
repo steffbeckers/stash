@@ -87,14 +87,10 @@ npx wrangler secret put NUXT_PUBLIC_APP_VERSION
 
 - `NUXT_PUBLIC_SUPABASE_URL` — the production Supabase project URL
 - `NUXT_PUBLIC_SUPABASE_KEY` — the production Supabase anon/publishable key
-- `NUXT_PUBLIC_APP_VERSION` — the version being deployed (without this, the
-  Worker falls back to the `.env` value used at build time, typically `dev`)
-
-`NUXT_PUBLIC_APP_VERSION` is optioneel maar hoort bij een echte deploy gezet te
-worden, bijvoorbeeld op de commit-SHA. Zonder die variabele valt
-`nuxt.config.ts` terug op de letterlijke waarde `dev`, en dan rapporteert
-`/api/health` versie `dev` in productie — misleidend zodra er meer dan één
-versie tegelijk draait.
+- `NUXT_PUBLIC_APP_VERSION` — the version being deployed, e.g. the commit SHA
+  (without this, the Worker falls back to the `.env` value used at build
+  time, typically `dev` — and then `/api/health` reports version `dev` in
+  production, misleading once more than one version is running)
 
 These three are safe to expose this way: all of them end up in
 `runtimeConfig.public` and ship to the browser regardless, the same anon key

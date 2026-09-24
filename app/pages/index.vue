@@ -3,7 +3,10 @@ const { t } = useI18n()
 const localePath = useLocalePath()
 
 // Dagelijkse gebruikers horen de uitlegpagina niet elke keer te zien.
-useRedirectWhenSignedIn(localePath('/app'))
+// Een getter, geen kale string: useRedirectWhenSignedIn() roept toValue() aan
+// bij elke keer dat de watcher vuurt, dus dit moet localePath('/app') telkens
+// opnieuw evalueren in plaats van hem één keer bij setup te bevriezen.
+useRedirectWhenSignedIn(() => localePath('/app'))
 </script>
 
 <template>
