@@ -132,24 +132,25 @@ jobs:
       # past — andersom zou je code deployen die op een kolom rekent die er
       # nog niet is.
       #
+      # Rechtstreeks naar Postgres, bewust buiten de management-API om. Dat
+      # scheelt een accountbreed toegangstoken: `supabase link` haalt ook
+      # projectsleutels en instellingen op die wij niet nodig hebben, en elke
+      # ontbrekende permissie daarvan kost een mislukte deploy. Deze weg heeft
+      # er precies één nodig: de verbindingsstring zelf.
+      #
+      # Het moet de *session pooler* zijn (poort 5432), om twee redenen. De
+      # directe host db.<ref>.supabase.co is op nieuwe projecten alleen over
+      # IPv6 bereikbaar en GitHub-runners hebben uitsluitend IPv4 — daar viel
+      # de eerste deploy op om. En de transaction pooler (6543) is ongeschikt
+      # voor migraties, die sessiestatus nodig hebben.
+      #
       # `db push` vergelijkt de bestandsnamen in supabase/migrations tegen de
       # remote historietabel en past alleen toe wat ontbreekt. GitHub zet
       # CI=true, dus de CLI vraagt niet om bevestiging.
-      #
-      # `link` is niet optioneel, ook al accepteert `db push` een
-      # --project-ref. Zonder link verbindt de CLI rechtstreeks met
-      # db.<ref>.supabase.co, en dat adres is op nieuwe projecten alleen over
-      # IPv6 bereikbaar terwijl GitHub-runners uitsluitend IPv4 hebben. De
-      # eerste echte deploy viel daarop om met "IPv6 is not supported on your
-      # current network". `link` zet de verbinding via de pooler op, die wel
-      # IPv4 spreekt, en `--linked` gebruikt die.
       - name: Migraties naar productie
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: |
-          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
-          supabase db push --linked
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: supabase db push --db-url "$DB_URL"
 
       # @nuxtjs/supabase wil al bij `nuxt prepare` (de postinstall) een URL en
       # een sleutel zien, vandaar ook hier.
