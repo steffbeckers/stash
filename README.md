@@ -81,9 +81,20 @@ Worker URL, and the redirect allowlist is `https://stash.steff-093.workers.dev/*
 Narrowing that to just `/confirm` reintroduces the locale-loss bug described
 below, in production only.
 
-### Running a deploy
+### How deploys happen
 
-`npm run deploy` runs `nuxt build && wrangler deploy`.
+Merging to `main` deploys. The `deploy` job in `.github/workflows/ci.yml`
+runs after both test jobs pass, pushes any new migrations, builds, deploys
+the Worker, and then asks `/api/health` whether the new commit is actually
+answering. A red migration stops the deploy; a deploy that uploads but never
+goes live fails the job rather than passing quietly.
+
+Schema before code, deliberately. The reverse order ships code that expects a
+column which does not exist yet.
+
+`npm run deploy` still works from a laptop and is the escape hatch when CI
+cannot run. Prefer the pipeline: a manual deploy bakes in whatever is in your
+local `.env`, which is how production and `main` drift apart.
 
 Nitro writes its own `wrangler.json` into `.output/server/` during the build
 and a redirect at `.wrangler/deploy/config.json`, so `wrangler deploy` from
@@ -93,49 +104,54 @@ checked in here. That matters: the generated one adds the
 Wrangler prints which config it picked; `npx wrangler deploy --dry-run` shows
 it without deploying.
 
-This matters because of how Supabase credentials flow through the build:
-`@nuxtjs/supabase` reads `SUPABASE_URL`/`SUPABASE_KEY` (or their
-`NUXT_PUBLIC_`-prefixed equivalents) from `.env` **at build time** and bakes
-them into the deployed bundle as defaults. Nitro can override those defaults
-**at runtime**, but only via environment variables that use the exact
-`NUXT_PUBLIC_` prefix — plain `SUPABASE_URL`/`SUPABASE_KEY` are never read by
-the running Worker, only by the build.
+### Where the credentials live
 
-Before running `npm run deploy` against a real project, set these on the
-Cloudflare Worker (not in `.env`, which stays local-only):
+`@nuxtjs/supabase` reads `SUPABASE_URL`/`SUPABASE_KEY` **at build time** and
+bakes them into the bundle. Nitro can override those at runtime, but only via
+variables carrying the exact `NUXT_PUBLIC_` prefix.
 
-```bash
-npx wrangler secret put NUXT_PUBLIC_SUPABASE_URL
-npx wrangler secret put NUXT_PUBLIC_SUPABASE_KEY
-npx wrangler secret put NUXT_PUBLIC_APP_VERSION
-```
+CI builds with the production values, so what ships is already correct and
+**the Worker needs no runtime secrets**. That is a deliberate choice: two
+places holding the same value is two places that can disagree, and this
+project has already been bitten by it — a stale `NUXT_PUBLIC_APP_VERSION`
+secret kept overriding the built-in version, so `/api/health` reported a
+commit that was no longer anywhere near `main`.
 
-- `NUXT_PUBLIC_SUPABASE_URL` — the production Supabase project URL
-- `NUXT_PUBLIC_SUPABASE_KEY` — the production Supabase anon/publishable key
-- `NUXT_PUBLIC_APP_VERSION` — the version being deployed, e.g. the commit SHA
-  (without this, the Worker falls back to the `.env` value used at build
-  time, typically `dev` — and then `/api/health` reports version `dev` in
-  production, misleading once more than one version is running)
+If you ever do set a Worker secret, remember it wins over whatever CI built.
 
-Redirect URLs need the same attention before that first deploy. Since this
-branch, `emailRedirectTo` is locale-aware — `/confirm`, `/nl/confirm`, or
-`/fr/confirm`, depending on which locale the user was on when they signed in
-(see `app/pages/login.vue`) — instead of the single fixed URL it used to be.
-Locally this is invisible because `supabase/config.toml`'s
-`additional_redirect_urls` is a glob (`http://localhost:3000/*`) that covers
-all three. In production, the redirect URL allowlist lives in the Supabase
-dashboard (Authentication → URL Configuration), outside this repo, and has
-to be set explicitly — add all three confirm URLs (or an equivalent glob)
-for the deployed domain before going live. Miss `/nl` or `/fr` there and
-those magic links silently fall back to the Site URL, dropping the guest's
-language exactly like the bug this branch fixed, just resurrected in
-production instead of locally.
+Repository **variables** (not secrets — every one of these is public by
+design and ships in the browser bundle; keeping them unmasked makes CI logs
+readable):
 
-These three are safe to expose this way: all of them end up in
-`runtimeConfig.public` and ship to the browser regardless, the same anon key
-that's already public by design. `wrangler secret put` is used here purely
-to get them into the Worker's environment reliably; declaring them as plain
-`vars` in `wrangler.jsonc` instead works the same way.
+| Variable | Value |
+| --- | --- |
+| `SUPABASE_PROJECT_REF` | the project ref, used by `supabase db push` |
+| `SUPABASE_URL` | the project API URL |
+| `SUPABASE_ANON_KEY` | the anon/publishable key |
+| `PRODUCTION_URL` | the deployed base URL, used by the health check |
+
+Repository **secrets**:
+
+| Secret | Where to get it |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | dash.cloudflare.com → My Profile → API Tokens → template "Edit Cloudflare Workers" |
+| `SUPABASE_ACCESS_TOKEN` | supabase.com/dashboard/account/tokens |
+| `SUPABASE_DB_PASSWORD` | the project's database password (Project Settings → Database; reset it there if it was never recorded) |
+
+### Auth redirect URLs
+
+Not in this repo. They live in the Supabase dashboard under **Authentication
+→ URL Configuration**, and they have to be set before the first real sign-in.
+
+`emailRedirectTo` is locale-aware — `/confirm`, `/nl/confirm` or
+`/fr/confirm`, depending on where the user signed in (see
+`app/pages/login.vue`). Locally this is invisible because
+`supabase/config.toml`'s `additional_redirect_urls` is a glob
+(`http://localhost:3000/*`) covering all three. In production, set the Site
+URL to the deployed URL and the allowlist to that URL plus `/**`. Narrow it
+to just `/confirm` and Dutch and French magic links silently fall back to the
+Site URL, dropping the user's language — the exact bug plan 2 fixed, brought
+back in production only.
 
 `DATABASE_URL` and `NUXT_SUPABASE_SECRET_KEY` are not part of this list.
 `DATABASE_URL` is used only by the test harness. The secret key is read by
