@@ -1,4 +1,21 @@
 import { expect } from '@playwright/test'
+// `with { type: 'json' }`: package.json heeft "type": "module", en Node's
+// eigen ESM-loader (die Playwright hier gebruikt, niet enkel een
+// TS-stripper) weigert een JSON-bestand zonder deze importattribuut te laden
+// ("needs an import attribute of type: json"), ongeacht tsconfig-instellingen.
+import en from '../i18n/locales/en.json' with { type: 'json' }
+import nl from '../i18n/locales/nl.json' with { type: 'json' }
+import fr from '../i18n/locales/fr.json' with { type: 'json' }
+
+const bundles = { en, nl, fr }
+
+export type Locale = keyof typeof bundles
+
+// nuxt.config.ts gebruikt strategy 'prefix_except_default' met defaultLocale
+// 'en': /login voor Engels, /nl/login en /fr/login voor de rest.
+export function prefix(locale: Locale): string {
+  return locale === 'en' ? '' : `/${locale}`
+}
 
 // Gedeelde e2e-hulpfuncties voor onboarding.spec.ts en invite.spec.ts.
 //
@@ -53,19 +70,26 @@ export async function waitForHydration(page: import('@playwright/test').Page) {
   })
 }
 
-export async function signIn(page: import('@playwright/test').Page, email: string) {
-  await page.goto('/login')
+export async function signIn(
+  page: import('@playwright/test').Page,
+  email: string,
+  locale: Locale = 'en',
+) {
+  const t = bundles[locale]
+
+  await page.goto(`${prefix(locale)}/login`)
   await waitForHydration(page)
-  await page.getByLabel(/email/i).fill(email)
-  await page.getByRole('button', { name: /link/i }).click()
-  await expect(page.getByText(/inbox/i)).toBeVisible()
+  // De echte vertaling in plaats van een regex: zo breekt deze helper niet
+  // stil op een taal waarin het woord "email" er anders uitziet, en toont
+  // hij meteen aan dat de vertaling ook werkelijk gerenderd wordt.
+  await page.getByLabel(t.auth.email).fill(email)
+  await page.getByRole('button', { name: t.auth.sendLink }).click()
+  await expect(page.getByText(t.auth.linkSent)).toBeVisible()
 
   const link = await readLatestMagicLink(email)
   await page.goto(link)
-  // confirm.vue stuurt pas door zodra de Supabase-client de sessie herkent
-  // en useSupabaseUser() waarheid wordt (dat gebeurt pas na hydratie). Enkel
-  // wachten tot de URL '/confirm' bevat volstaat niet: die staat er al
-  // meteen na de redirect, ruim voordat de sessie is opgeslagen. Wachten tot
-  // we van '/confirm' weg zijn bewijst dat de sessie er echt is.
-  await page.waitForURL((current) => !current.pathname.startsWith('/confirm'))
+  // confirm.vue stuurt pas door zodra de Supabase-client de sessie herkent.
+  // `includes` en niet `startsWith`: onder /nl en /fr staat de taalprefix
+  // vóór /confirm.
+  await page.waitForURL((current) => !current.pathname.includes('/confirm'))
 }
