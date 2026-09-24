@@ -107,3 +107,76 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  deploy:
+    name: Migraties en deploy naar productie
+    needs: [check, e2e]
+    # Alleen na een merge naar main, nooit op een pull request. Een PR van een
+    # fork zou anders met productiegeheimen kunnen draaien.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      # Eerst het schema, dan de code. Faalt een migratie, dan stopt de job
+      # hier en blijft productie draaien op code die bij het huidige schema
+      # past — andersom zou je code deployen die op een kolom rekent die er
+      # nog niet is.
+      #
+      # `db push` vergelijkt de bestandsnamen in supabase/migrations tegen de
+      # remote historietabel en past alleen toe wat ontbreekt. GitHub zet
+      # CI=true, dus de CLI vraagt niet om bevestiging.
+      - name: Migraties naar productie
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
+
+      # @nuxtjs/supabase wil al bij `nuxt prepare` (de postinstall) een URL en
+      # een sleutel zien, vandaar ook hier.
+      - name: Afhankelijkheden installeren
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: npm ci
+
+      # Hier worden de productiewaarden ingebakken, dus wat de Worker serveert
+      # klopt zonder runtime-overschrijving. Dat is bewust: één bron van
+      # waarheid. Worker-secrets zouden hetzelfde nog eens vastleggen en stil
+      # uit de pas kunnen gaan lopen — zie README, sectie Deploying.
+      - name: Bouwen en deployen
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          NUXT_PUBLIC_APP_VERSION: ${{ github.sha }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run deploy
+
+      # Een geslaagd deploy-commando is niet hetzelfde als een draaiende nieuwe
+      # versie. Dit vraagt het de app zelf, en faalt de job als het antwoord
+      # niet de zojuist gebouwde commit is.
+      - name: Controleren dat de nieuwe versie antwoordt
+        env:
+          VERWACHT: ${{ github.sha }}
+          BASIS: ${{ vars.PRODUCTION_URL }}
+        run: |
+          for poging in $(seq 1 12); do
+            gemeten=$(curl -fsS "$BASIS/api/health"               | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version' 2>/dev/null || echo "")
+            if [ "$gemeten" = "$VERWACHT" ]; then
+              echo "Live op $gemeten"
+              exit 0
+            fi
+            echo "Poging $poging: nog \"$gemeten\", wacht op \"$VERWACHT\""
+            sleep 5
+          done
+          echo "::error::De nieuwe versie antwoordde niet binnen een minuut. De deploy is mogelijk wel geslaagd; controleer $BASIS/api/health."
+          exit 1
