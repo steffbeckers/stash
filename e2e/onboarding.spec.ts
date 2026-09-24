@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test'
-import { signIn, waitForHydration, bundles } from './helpers'
+import { signIn, waitForHydration, bundles, routePath } from './helpers'
 
 const en = bundles.en
 
 test('een nieuwe gebruiker belandt op onboarding en kan een huishouden starten', async ({ page }) => {
   await signIn(page, `e2e-${Date.now()}@example.com`)
 
-  await page.goto('/onboarding')
+  await page.goto(routePath('onboarding', 'en'))
   await waitForHydration(page)
   await page.getByLabel('Household name').fill('Testhuis')
   await page.getByRole('button', { name: 'Start' }).click()
@@ -17,15 +17,20 @@ test('een nieuwe gebruiker belandt op onboarding en kan een huishouden starten',
 test('een gebruiker zonder huishouden wordt vanaf de app-startpagina doorgestuurd', async ({ page }) => {
   await signIn(page, `e2e-redirect-${Date.now()}@example.com`)
 
-  await page.goto('/app')
-  await expect(page).toHaveURL(/\/onboarding/)
+  await page.goto(routePath('inventory', 'en'))
+  await expect(page).toHaveURL(new RegExp(routePath('onboarding', 'en')))
 })
 
-test('een ingelogde gebruiker op de landingspagina belandt in de app', async ({ page }) => {
+// De landingspagina stuurde een ingelogde bezoeker meteen door naar /app, dus
+// je kon je eigen uitlegpagina niet meer bekijken zodra je een account had.
+// Nu blijf je staan; alleen de knop verandert van "beginnen" naar "doorgaan".
+test('een ingelogde gebruiker mag op de landingspagina blijven', async ({ page }) => {
   await signIn(page, `e2e-landing-${Date.now()}@example.com`)
 
   await page.goto('/')
-  await expect(page).toHaveURL(/\/(app|onboarding)/)
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('link', { name: en.landing.goToApp })).toBeVisible()
+  await expect(page.getByRole('link', { name: en.landing.getStarted })).toHaveCount(0)
 })
 
 // Bevinding 6 van de eindreview: er was geen navigatie naar de
@@ -34,29 +39,29 @@ test('een ingelogde gebruiker op de landingspagina belandt in de app', async ({ 
 test('een ingelogde gebruiker bereikt beide instellingenpagina\'s via de navigatie', async ({ page }) => {
   await signIn(page, `e2e-nav-${Date.now()}@example.com`)
 
-  await page.goto('/onboarding')
+  await page.goto(routePath('onboarding', 'en'))
   await waitForHydration(page)
   await page.getByLabel('Household name').fill('Navigatiehuis')
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(page.getByText('Navigatiehuis')).toBeVisible()
 
   await page.getByRole('link', { name: 'Settings' }).click()
-  await expect(page).toHaveURL(/\/settings\/household/)
+  await expect(page).toHaveURL(new RegExp(routePath('settings/household', 'en')))
 
   await page.getByRole('link', { name: 'Storage places' }).click()
-  await expect(page).toHaveURL(/\/settings\/places/)
+  await expect(page).toHaveURL(new RegExp(routePath('settings/places', 'en')))
 })
 
 test('de eigenaar staat als lid in de huishoudinstellingen', async ({ page }) => {
   const email = `leden-${Date.now()}@example.com`
   await signIn(page, email)
 
-  await page.goto('/onboarding')
+  await page.goto(routePath('onboarding', 'en'))
   await waitForHydration(page)
   await page.getByLabel(en.onboarding.name).fill('Testhuis')
   await page.getByRole('button', { name: en.onboarding.start }).click()
 
-  await page.goto('/settings/household')
+  await page.goto(routePath('settings/household', 'en'))
   // Bevinding 7 van de eindreview: signIn() en de rest van deze flow draaien
   // altijd onvertaald (unprefixed = Engels per prefix_except_default), dus
   // de taalalternatie hierboven was theater — hij testte nooit een andere

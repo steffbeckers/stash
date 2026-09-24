@@ -64,7 +64,7 @@ async function revoke(id: string) {
 // login.vue (emailRedirectTo) en invite/[token].vue (de redirect-waarde na
 // inloggen).
 function linkFor(token: string): string {
-  return `${window.location.origin}${localePath(`/invite/${token}`)}`
+  return `${window.location.origin}${localePath({ name: 'invite-token', params: { token } })}`
 }
 
 async function copy(token: string) {

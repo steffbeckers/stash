@@ -17,12 +17,12 @@ const pending = ref(false)
 async function submit() {
   pending.value = true
   error.value = ''
-  // localePath('/confirm'), niet de kale string: zonder taalprefix wijst de
+  // localePath('confirm'), niet de kale string: zonder taalprefix wijst de
   // magic link altijd naar het Engelse /confirm, en verliest de gebruiker
   // zijn taalkeuze zodra hij op de link in de e-mail klikt. confirm.vue kan
-  // die taal daarna niet meer terugvinden — localePath('/app') resolveert
+  // die taal daarna niet meer terugvinden — localePath('inventory') resolveert
   // daar tegen de (dan al taalloze) route waarop de e-mail is beland.
-  const target = new URL(localePath('/confirm'), window.location.origin)
+  const target = new URL(localePath('confirm'), window.location.origin)
   if (redirectTo.value) target.searchParams.set('redirect', redirectTo.value)
 
   const { error: authError } = await supabase.auth.signInWithOtp({

@@ -5,7 +5,8 @@
   },
   "nav": {
     "inventory": "Voorraad",
-    "settings": "Instellingen"
+    "settings": "Instellingen",
+    "language": "Taal"
   },
   "auth": {
     "signIn": "Inloggen",
@@ -16,7 +17,8 @@
     "error": "Er ging iets mis. Probeer het opnieuw."
   },
   "landing": {
-    "getStarted": "Aan de slag"
+    "getStarted": "Aan de slag",
+    "goToApp": "Naar je voorraad"
   },
   "appHome": {
     "title": "Je huishouden"

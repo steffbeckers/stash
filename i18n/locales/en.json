@@ -5,7 +5,8 @@
   },
   "nav": {
     "inventory": "Inventory",
-    "settings": "Settings"
+    "settings": "Settings",
+    "language": "Language"
   },
   "auth": {
     "signIn": "Sign in",
@@ -16,7 +17,8 @@
     "error": "Something went wrong. Please try again."
   },
   "landing": {
-    "getStarted": "Get started"
+    "getStarted": "Get started",
+    "goToApp": "Go to your inventory"
   },
   "appHome": {
     "title": "Your household"

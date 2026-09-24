@@ -12,7 +12,7 @@ async function start() {
   error.value = ''
   try {
     await create(name.value)
-    await navigateTo(localePath('/app'))
+    await navigateTo(localePath('inventory'))
   } catch {
     error.value = t('auth.error')
   } finally {

@@ -17,8 +17,11 @@ onMounted(async () => {
     // confirm.vue navigeert daar na het inloggen letterlijk naartoe —
     // safeInternalPath() keurt dat goed (het is een geldig intern pad), dus
     // de gebruiker belandt zonder foutmelding op de Engelse uitnodiging.
-    const invitePath = localePath(`/invite/${encodeURIComponent(route.params.token as string)}`)
-    await navigateTo(localePath(`/login?redirect=${invitePath}`))
+    const invitePath = localePath({
+      name: 'invite-token',
+      params: { token: route.params.token as string },
+    })
+    await navigateTo(localePath({ name: 'login', query: { redirect: invitePath } }))
     return
   }
 
@@ -62,7 +65,7 @@ onMounted(async () => {
 
     <UAlert v-else color="error" :description="t('invite.failed')" />
 
-    <UButton v-if="state !== 'joining'" class="mt-6" :to="localePath('/app')" block>
+    <UButton v-if="state !== 'joining'" class="mt-6" :to="localePath('inventory')" block>
       {{ t('app.name') }}
     </UButton>
   </UContainer>

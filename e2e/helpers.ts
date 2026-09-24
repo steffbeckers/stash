@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test'
+import { routePath } from '../routes.config'
 // `with { type: 'json' }`: package.json heeft "type": "module", en Node's
 // eigen ESM-loader (die Playwright hier gebruikt, niet enkel een
 // TS-stripper) weigert een JSON-bestand zonder deze importattribuut te laden
@@ -7,12 +8,25 @@ import en from '../i18n/locales/en.json' with { type: 'json' }
 import nl from '../i18n/locales/nl.json' with { type: 'json' }
 import fr from '../i18n/locales/fr.json' with { type: 'json' }
 
+// De tests gebruiken dezelfde routekaart als nuxt.config.ts, zodat een
+// hernoemd pad hier omvalt in plaats van stilletjes langs de tests te glippen.
+export { routePath } from '../routes.config'
+
 // Geëxporteerd zodat andere specs (zoals invite.spec.ts) ook de echte
 // vertaling kunnen gebruiken in plaats van een regex, zonder i18n/locales/*
 // een tweede keer te importeren.
 export const bundles = { en, nl, fr }
 
 export type Locale = keyof typeof bundles
+
+// De namen zoals ze in de taalschakelaar staan. Ze komen uit de `locales`-
+// array in nuxt.config.ts, die een e2e-test niet kan importeren; verandert
+// daar een naam, dan valt dat hier om en niet stilletjes in de UI.
+export const localeNames: Record<Locale, string> = {
+  en: 'English',
+  nl: 'Nederlands',
+  fr: 'Français',
+}
 
 // nuxt.config.ts gebruikt strategy 'prefix_except_default' met defaultLocale
 // 'en': /login voor Engels, /nl/login en /fr/login voor de rest.
@@ -68,6 +82,10 @@ export async function readLatestMagicLink(email: string): Promise<string> {
 // opnieuw met de velden in de querystring, en de test loopt vast op een
 // scherm dat er bijna goed uitziet.
 //
+// De selector is instelbaar omdat niet elke pagina een formulier heeft: de
+// landingspagina heeft alleen de taalschakelaar, en die reageert net zo goed
+// pas na hydratie. De standaardwaarde dekt de formulierpagina's.
+//
 // Er is geen publieke API die zegt "deze knop is gehydrateerd".
 // __vueParentComponent is een ongedocumenteerde Vue-interne: runtime-dom
 // hangt hem aan een element zodra de component eraan gekoppeld is. Dat is
@@ -77,12 +95,15 @@ export async function readLatestMagicLink(email: string): Promise<string> {
 // Verdwijnt de eigenschap bij een Vue-majorupgrade, dan valt deze functie om
 // in een timeout. De melding hieronder zorgt dat de volgende lezer niet gaat
 // zoeken in de applicatie maar hier uitkomt.
-export async function waitForHydration(page: import('@playwright/test').Page) {
+export async function waitForHydration(
+  page: import('@playwright/test').Page,
+  selector = 'button[type="submit"]',
+) {
   try {
-    await page.waitForFunction(() => {
-      const button = document.querySelector('button[type="submit"]')
-      return !!button && '__vueParentComponent' in button
-    })
+    await page.waitForFunction((sel) => {
+      const el = document.querySelector(sel)
+      return !!el && '__vueParentComponent' in el
+    }, selector)
   } catch (cause) {
     throw new Error(
       'Hydratie niet waargenomen binnen de timeout. Deze wacht steunt op de ' +
@@ -100,7 +121,7 @@ export async function signIn(
 ) {
   const t = bundles[locale]
 
-  await page.goto(`${prefix(locale)}/login`)
+  await page.goto(routePath('login', locale))
   await waitForHydration(page)
   // De echte vertaling in plaats van een regex: zo breekt deze helper niet
   // stil op een taal waarin het woord "email" er anders uitziet, en toont

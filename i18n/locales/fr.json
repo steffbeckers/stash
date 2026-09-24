@@ -5,7 +5,8 @@
   },
   "nav": {
     "inventory": "Stock",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "language": "Langue"
   },
   "auth": {
     "signIn": "Se connecter",
@@ -16,7 +17,8 @@
     "error": "Une erreur s'est produite. Veuillez réessayer."
   },
   "landing": {
-    "getStarted": "Commencer"
+    "getStarted": "Commencer",
+    "goToApp": "Voir votre inventaire"
   },
   "appHome": {
     "title": "Votre ménage"

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { waitForHydration, bundles } from './helpers'
+import { waitForHydration, bundles, routePath } from './helpers'
 
 const en = bundles.en
 
@@ -10,12 +10,12 @@ test('de homepage blijft publiek', async ({ page }) => {
 })
 
 test('een afgeschermde pagina stuurt je naar inloggen', async ({ page }) => {
-  await page.goto('/app')
-  await expect(page).toHaveURL(/\/login/)
+  await page.goto(routePath('inventory', 'en'))
+  await expect(page).toHaveURL(new RegExp(routePath('login', 'en')))
 })
 
 test('het inlogformulier toont een bevestiging na versturen', async ({ page }) => {
-  await page.goto('/login')
+  await page.goto(routePath('login', 'en'))
   await waitForHydration(page)
   await page.getByLabel(en.auth.email).fill('test@example.com')
   await page.getByRole('button', { name: en.auth.sendLink }).click()
