@@ -90,7 +90,16 @@ answering. A red migration stops the deploy; a deploy that uploads but never
 goes live fails the job rather than passing quietly.
 
 Schema before code, deliberately. The reverse order ships code that expects a
-column which does not exist yet.
+column which does not exist yet. The first real run proved the point in the
+other direction: `supabase db push` failed, and because it runs first nothing
+was deployed — production kept serving the previous version instead of code
+written against a schema that had not landed.
+
+The migration step runs `supabase link` before `db push`, and that is not
+redundant even though `db push` takes a `--project-ref`. Without linking, the
+CLI connects straight to `db.<ref>.supabase.co`, which newer projects expose
+over IPv6 only, while GitHub runners are IPv4-only. `link` sets up the pooler
+connection instead.
 
 `npm run deploy` still works from a laptop and is the escape hatch when CI
 cannot run. Prefer the pipeline: a manual deploy bakes in whatever is in your
