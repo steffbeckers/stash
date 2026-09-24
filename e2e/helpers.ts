@@ -20,7 +20,8 @@ export function prefix(locale: Locale): string {
   return locale === 'en' ? '' : `/${locale}`
 }
 
-// Gedeelde e2e-hulpfuncties voor onboarding.spec.ts en invite.spec.ts.
+// Gedeelde e2e-hulpfuncties voor onboarding.spec.ts, invite.spec.ts,
+// locales.spec.ts en login.spec.ts.
 //
 // Dit staat in een los bestand (niet in onboarding.spec.ts zelf) omdat
 // Playwright weigert een testbestand te draaien dat een ander testbestand

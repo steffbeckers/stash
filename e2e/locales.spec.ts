@@ -12,8 +12,13 @@ for (const locale of locales) {
     await signIn(page, email, locale)
 
     // Na het inloggen zonder huishouden komt de gebruiker op onboarding uit,
-    // en de taalprefix hoort onderweg niet verloren te gaan.
-    await expect(page).toHaveURL(new RegExp(`${prefix(locale)}/`))
-    await expect(page).not.toHaveURL(/\/confirm/)
+    // en de taalprefix hoort onderweg niet verloren te gaan. Bevinding 6 van
+    // de eindreview: de vorige assertie hier (not.toHaveURL(/\/confirm/))
+    // herhaalde alleen wat signIn() al garandeert via
+    // waitForURL((current) => !current.pathname.includes('/confirm')) —
+    // een tautologie die nooit kon falen. Deze regel toetst in plaats
+    // daarvan wat de comment hierboven al beweerde: de precieze,
+    // taalprefixte onboardingroute.
+    await expect(page).toHaveURL(new RegExp(`${prefix(locale)}/onboarding`))
   })
 }
