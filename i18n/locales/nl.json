@@ -56,6 +56,11 @@
   "householdSettings": {
     "title": "Huishouden",
     "invitations": "Uitnodigingen",
-    "error": "Dat is niet gelukt. Probeer het opnieuw."
+    "error": "Dat is niet gelukt. Probeer het opnieuw.",
+    "members": "Leden",
+    "roleOwner": "Eigenaar",
+    "roleMember": "Lid",
+    "you": "jij",
+    "noName": "Naamloos"
   }
 }

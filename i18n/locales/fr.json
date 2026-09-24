@@ -56,6 +56,11 @@
   "householdSettings": {
     "title": "Ménage",
     "invitations": "Invitations",
-    "error": "Cela a échoué. Veuillez réessayer."
+    "error": "Cela a échoué. Veuillez réessayer.",
+    "members": "Membres",
+    "roleOwner": "Propriétaire",
+    "roleMember": "Membre",
+    "you": "vous",
+    "noName": "Sans nom"
   }
 }

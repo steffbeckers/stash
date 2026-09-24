@@ -4,6 +4,12 @@ export interface Household {
   role: 'owner' | 'member'
 }
 
+export interface Member {
+  userId: string
+  displayName: string | null
+  role: 'owner' | 'member'
+}
+
 const ACTIVE_KEY = 'stash_active_household'
 
 export function useHousehold() {
@@ -12,6 +18,7 @@ export function useHousehold() {
 
   const households = useState<Household[]>('households', () => [])
   const activeId = useState<string | null>('activeHousehold', () => null)
+  const members = useState<Member[]>('householdMembers', () => [])
 
   async function refresh(): Promise<void> {
     if (!user.value) {
@@ -59,5 +66,46 @@ export function useHousehold() {
     return data as string
   }
 
-  return { households, activeId, refresh, setActive, create }
+  async function loadMembers(householdId: string): Promise<void> {
+    const { data: memberRows, error: memberError } = await supabase
+      .from('household_member')
+      .select('user_id, role')
+      .eq('household_id', householdId)
+      .order('joined_at')
+
+    if (memberError) throw memberError
+
+    // household_member.user_id en user_profile.user_id wijzen allebei
+    // onafhankelijk naar auth.users — er is geen foreign key tussen
+    // household_member en user_profile onderling (geverifieerd tegen het
+    // draaiende schema). PostgREST kan zo'n embedded select() dus niet
+    // vertalen; vandaar twee losse queries die hier client-side worden
+    // samengevoegd in plaats van de geneste `user_profile(display_name)`-select.
+    const userIds = (memberRows ?? []).map((row) => row.user_id)
+    const displayNameByUserId = new Map<string, string | null>()
+
+    if (userIds.length > 0) {
+      const { data: profileRows, error: profileError } = await supabase
+        .from('user_profile')
+        .select('user_id, display_name')
+        .in('user_id', userIds)
+
+      if (profileError) throw profileError
+
+      for (const row of profileRows ?? []) {
+        displayNameByUserId.set(row.user_id, row.display_name)
+      }
+    }
+
+    members.value = (memberRows ?? []).map((row) => ({
+      userId: row.user_id,
+      displayName: displayNameByUserId.get(row.user_id) ?? null,
+      // role is een tekstkolom met een check-constraint, geen Postgres-enum,
+      // dus de gegenereerde types geven `string`. Zelfde cast als bij
+      // Household['role'] hierboven.
+      role: row.role as Member['role'],
+    }))
+  }
+
+  return { households, activeId, members, refresh, setActive, create, loadMembers }
 }

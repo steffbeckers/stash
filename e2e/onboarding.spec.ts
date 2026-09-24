@@ -44,3 +44,16 @@ test('een ingelogde gebruiker bereikt beide instellingenpagina\'s via de navigat
   await page.getByRole('link', { name: 'Storage places' }).click()
   await expect(page).toHaveURL(/\/settings\/places/)
 })
+
+test('de eigenaar staat als lid in de huishoudinstellingen', async ({ page }) => {
+  const email = `leden-${Date.now()}@example.com`
+  await signIn(page, email)
+
+  await page.goto('/onboarding')
+  await waitForHydration(page)
+  await page.getByLabel(/naam|name|nom/i).fill('Testhuis')
+  await page.getByRole('button', { name: /start|commencer/i }).click()
+
+  await page.goto('/settings/household')
+  await expect(page.getByText(/owner/i)).toBeVisible()
+})
