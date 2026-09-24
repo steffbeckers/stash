@@ -262,6 +262,15 @@ describe('uitnodigingen', () => {
           await txB`select set_config('request.jwt.claim.sub', ${second}, true)`
           await txB`select accept_invite(${token})`
         })
+        // Bevinding 5 van de eindreview: zonder deze regel hangt bRun tot
+        // regel met Promise.allSettled hieronder zonder rejection-handler.
+        // B verwerpt rond het moment dat A commit; wint de main thread die
+        // race niet, dan valt de Vitest-worker om op een unhandled
+        // rejection in plaats van dat de assertie hieronder eerlijk faalt.
+        // Deze catch voorkomt dat zonder de betekenis van de test te
+        // raken — Promise.allSettled([bRun!]) leest straks nog steeds de
+        // originele verwerping van bRun zelf.
+        bRun.catch(() => {})
 
         // Zonder deze pauze begint B pas ná de commit van A en meet de test
         // geen gelijktijdigheid meer — dan zou hij ook groen zijn met een
