@@ -204,20 +204,30 @@ test('een uitgenodigde zonder account behoudt zijn taal door de hele inlogflow',
   const locale: Locale = 'fr'
   const fr = bundles[locale]
 
-  // Eigenaar maakt een huishouden en een uitnodigingslink; de taal van de
-  // eigenaar zelf doet voor deze bevinding niet ter zake.
-  await signIn(page, `e2e-lang-owner-${Date.now()}@example.com`)
-  await page.goto('/onboarding')
+  // De eigenaar moet zelf ook op /fr zitten wanneer de link wordt gemaakt.
+  // Bevinding 1 van de eindreview: linkFor() in HouseholdInvites.vue is nu
+  // taalbewust (useLocalePath()), dus de gegenereerde link volgt de actieve
+  // locale van de eigenaar op het moment van klikken. Bleef de eigenaar hier
+  // op het Engelse pad, dan zou de app een Engelse link produceren en zou
+  // deze test weer alleen de consument (invite/[token].vue) bewijzen, niet
+  // de producent.
+  await signIn(page, `e2e-lang-owner-${Date.now()}@example.com`, locale)
+  await page.goto(`${prefix(locale)}/onboarding`)
   await waitForHydration(page)
-  await page.getByLabel('Household name').fill('Taalhuis')
-  await page.getByRole('button', { name: 'Start' }).click()
+  await page.getByLabel(fr.onboarding.name).fill('Taalhuis')
+  await page.getByRole('button', { name: fr.onboarding.start }).click()
   await expect(page.getByText('Taalhuis')).toBeVisible()
 
-  await page.goto('/settings/household')
+  await page.goto(`${prefix(locale)}/settings/household`)
   await waitForButtonHydration(page)
-  await page.getByRole('button', { name: 'Create invitation link' }).click()
-  const link = await page.getByRole('textbox', { name: 'Invitation link' }).inputValue()
-  const token = new URL(link).pathname.replace('/invite/', '')
+  await page.getByRole('button', { name: fr.invite.create }).click()
+  // De link die de app werkelijk genereert, niet een met de hand
+  // samengestelde variant. Vóór de fix werkte dit alleen omdat de
+  // gegenereerde link toen nog altijd onvertaald was; dat maskeerde dat
+  // linkFor() zelf de enige plek is die een uitnodigingslink produceert en
+  // toen geen taalprefix meegaf.
+  const link = await page.getByRole('textbox', { name: fr.invite.linkLabel }).inputValue()
+  const token = new URL(link).pathname.split('/').filter(Boolean).pop()!
 
   // Een gast zonder account op de Franse variant van de uitnodiging — een
   // geldige, bereikbare route: nuxt.config.ts sluit /fr/invite/* expliciet
@@ -227,7 +237,7 @@ test('een uitgenodigde zonder account behoudt zijn taal door de hele inlogflow',
   const guest = await guestContext.newPage()
   const guestEmail = `e2e-lang-guest-${Date.now()}@example.com`
 
-  await guest.goto(`${prefix(locale)}/invite/${encodeURIComponent(token)}`)
+  await guest.goto(link)
   // Stap 1 van de bevinding werkte al vóór de fix: '/login' zelf kreeg al
   // een prefix. Ter controle, niet de kern van de test.
   await expect(guest).toHaveURL(new RegExp(`${prefix(locale)}/login`))
