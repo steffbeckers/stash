@@ -22,13 +22,21 @@ async function signOut() {
 
 <template>
   <UApp>
-    <header v-if="user" class="border-b border-muted">
-      <UContainer class="flex h-14 items-center justify-between gap-4">
-        <NuxtLink :to="localePath('/app')" class="shrink-0 font-bold">
-          {{ t('app.name') }}
-        </NuxtLink>
-        <UNavigationMenu :items="navItems" class="flex-1" />
+    <!-- De header rendert altijd, ook uitgelogd: de taalschakelaar hoort
+         bereikbaar te zijn op de landingspagina, de inlogpagina en vooral op
+         /invite/<token>, waar een genodigde binnenkomt in de taal van de
+         afzender. De navigatie en de uitlogknop blijven wel achter `user`. -->
+    <header class="border-b border-muted">
+      <UContainer class="flex h-14 items-center gap-4">
+        <template v-if="user">
+          <NuxtLink :to="localePath('/app')" class="shrink-0 font-bold">
+            {{ t('app.name') }}
+          </NuxtLink>
+          <UNavigationMenu :items="navItems" class="flex-1" />
+        </template>
+        <LanguageSwitcher class="ml-auto" />
         <UButton
+          v-if="user"
           size="sm"
           variant="ghost"
           color="neutral"

@@ -21,11 +21,16 @@ test('een gebruiker zonder huishouden wordt vanaf de app-startpagina doorgestuur
   await expect(page).toHaveURL(/\/onboarding/)
 })
 
-test('een ingelogde gebruiker op de landingspagina belandt in de app', async ({ page }) => {
+// De landingspagina stuurde een ingelogde bezoeker meteen door naar /app, dus
+// je kon je eigen uitlegpagina niet meer bekijken zodra je een account had.
+// Nu blijf je staan; alleen de knop verandert van "beginnen" naar "doorgaan".
+test('een ingelogde gebruiker mag op de landingspagina blijven', async ({ page }) => {
   await signIn(page, `e2e-landing-${Date.now()}@example.com`)
 
   await page.goto('/')
-  await expect(page).toHaveURL(/\/(app|onboarding)/)
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('link', { name: en.landing.goToApp })).toBeVisible()
+  await expect(page.getByRole('link', { name: en.landing.getStarted })).toHaveCount(0)
 })
 
 // Bevinding 6 van de eindreview: er was geen navigatie naar de
