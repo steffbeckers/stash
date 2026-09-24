@@ -1371,9 +1371,10 @@ git commit -m "chore: laatste kleine bevindingen uit plan 1 opruimen"
 
 ## Na afloop
 
-Het fundament is dan af in de zin dat spec §4 volledig is geïmplementeerd en elke bewaking een test heeft die aantoonbaar kan falen. Wat daarna nog openstaat is niet klein maar geblokkeerd of bewust uitgesteld:
+Het fundament is dan af in de zin dat spec §4's rollen en verwijdering zijn geïmplementeerd — een eigenaar kan een lid promoveren of verwijderen — en elke bewaking daarvoor een test heeft die aantoonbaar kan falen. Niet dat heel spec §4 klaar is: dat was hier nooit de belofte (correctie uit bevinding 3 van de eindreview, die eerder hier stond als "spec §4 volledig is geïmplementeerd"). Wat daarna nog openstaat is niet klein maar geblokkeerd, bewust uitgesteld, of gewoon nooit in scope van dit plan:
 
 - **De Workers-runtime is sinds taak 1 van plan 1 niet meer gevalideerd.** Dat kan pas als er een gehost Supabase-project in Frankfurt staat; nu deployen levert een worker op die naar een laptop wijst.
 - **Accountverwijdering voor enige eigenaars** hoort bij de AVG-flow van plan 8, die het huishouden eerst opheft.
+- **Een huishouden hernoemen of opheffen, en een gewoon lid dat zelf vertrekt, hebben geen UI.** De policies bestaan al (`supabase/migrations/20260922105658_household.sql:50,55,69`); dit plan voegde er geen route voor toe. Zie `docs/superpowers/open-bevindingen.md`.
 
 Daarna is de catalogus (`product` en `product_alias`) aan de beurt: het hart van de gedeelde inspanning, en de voorwaarde voor bonnen en voorraad.
