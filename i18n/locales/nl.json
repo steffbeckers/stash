@@ -56,6 +56,14 @@
   "householdSettings": {
     "title": "Huishouden",
     "invitations": "Uitnodigingen",
-    "error": "Dat is niet gelukt. Probeer het opnieuw."
+    "error": "Dat is niet gelukt. Probeer het opnieuw.",
+    "members": "Leden",
+    "roleOwner": "Eigenaar",
+    "roleMember": "Lid",
+    "you": "jij",
+    "noName": "Naamloos",
+    "makeOwner": "Tot eigenaar maken",
+    "removeMember": "Verwijderen",
+    "cannotRemoveLastOwner": "Een huishouden heeft minstens één eigenaar nodig. Maak eerst iemand anders eigenaar."
   }
 }

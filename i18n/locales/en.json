@@ -56,6 +56,14 @@
   "householdSettings": {
     "title": "Household",
     "invitations": "Invitations",
-    "error": "That did not work. Please try again."
+    "error": "That did not work. Please try again.",
+    "members": "Members",
+    "roleOwner": "Owner",
+    "roleMember": "Member",
+    "you": "you",
+    "noName": "Unnamed",
+    "makeOwner": "Make owner",
+    "removeMember": "Remove",
+    "cannotRemoveLastOwner": "A household needs at least one owner. Make someone else owner first."
   }
 }

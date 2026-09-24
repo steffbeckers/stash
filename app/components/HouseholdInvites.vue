@@ -2,6 +2,7 @@
 const props = defineProps<{ householdId: string }>()
 
 const { t, d } = useI18n()
+const localePath = useLocalePath()
 const supabase = useSupabaseClient()
 
 interface Invite {
@@ -54,8 +55,16 @@ async function revoke(id: string) {
   else await load()
 }
 
+// localePath(), niet het kale pad: dit is de enige plek die een
+// uitnodigingslink produceert (het vult het readonly veld en copy() zet het
+// resultaat op het klembord). Zonder taalprefix hier kreeg elke gast een
+// Engelse link, ongeacht de taal van de eigenaar die hem aanmaakte, en
+// detectBrowserLanguage (redirectOn: 'root') herstelt dat niet op
+// /invite/<token> — bevinding 1 van de eindreview. Zelfde patroon als
+// login.vue (emailRedirectTo) en invite/[token].vue (de redirect-waarde na
+// inloggen).
 function linkFor(token: string): string {
-  return `${window.location.origin}/invite/${token}`
+  return `${window.location.origin}${localePath(`/invite/${token}`)}`
 }
 
 async function copy(token: string) {

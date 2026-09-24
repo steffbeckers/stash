@@ -56,6 +56,14 @@
   "householdSettings": {
     "title": "Ménage",
     "invitations": "Invitations",
-    "error": "Cela a échoué. Veuillez réessayer."
+    "error": "Cela a échoué. Veuillez réessayer.",
+    "members": "Membres",
+    "roleOwner": "Propriétaire",
+    "roleMember": "Membre",
+    "you": "vous",
+    "noName": "Sans nom",
+    "makeOwner": "Nommer propriétaire",
+    "removeMember": "Retirer",
+    "cannotRemoveLastOwner": "Un ménage doit garder au moins un propriétaire. Nommez d'abord quelqu'un d'autre."
   }
 }

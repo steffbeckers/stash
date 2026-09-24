@@ -1,6 +1,27 @@
 import { expect } from '@playwright/test'
+// `with { type: 'json' }`: package.json heeft "type": "module", en Node's
+// eigen ESM-loader (die Playwright hier gebruikt, niet enkel een
+// TS-stripper) weigert een JSON-bestand zonder deze importattribuut te laden
+// ("needs an import attribute of type: json"), ongeacht tsconfig-instellingen.
+import en from '../i18n/locales/en.json' with { type: 'json' }
+import nl from '../i18n/locales/nl.json' with { type: 'json' }
+import fr from '../i18n/locales/fr.json' with { type: 'json' }
 
-// Gedeelde e2e-hulpfuncties voor onboarding.spec.ts en invite.spec.ts.
+// Geëxporteerd zodat andere specs (zoals invite.spec.ts) ook de echte
+// vertaling kunnen gebruiken in plaats van een regex, zonder i18n/locales/*
+// een tweede keer te importeren.
+export const bundles = { en, nl, fr }
+
+export type Locale = keyof typeof bundles
+
+// nuxt.config.ts gebruikt strategy 'prefix_except_default' met defaultLocale
+// 'en': /login voor Engels, /nl/login en /fr/login voor de rest.
+export function prefix(locale: Locale): string {
+  return locale === 'en' ? '' : `/${locale}`
+}
+
+// Gedeelde e2e-hulpfuncties voor onboarding.spec.ts, invite.spec.ts,
+// locales.spec.ts en login.spec.ts.
 //
 // Dit staat in een los bestand (niet in onboarding.spec.ts zelf) omdat
 // Playwright weigert een testbestand te draaien dat een ander testbestand
@@ -41,31 +62,57 @@ export async function readLatestMagicLink(email: string): Promise<string> {
   throw new Error(`Geen magic link gevonden voor ${email} in Mailpit`)
 }
 
-// Nuxt dev serveert ongebundeld: 'load' vuurt ruim voordat Vue hydrateert en
-// @submit.prevent aansluit. Zonder deze wacht raakt een klik op een
-// submit-knop een kale, niet-JS formulier-submit (paginareload met de
-// velden als querystring) in plaats van de Vue-handler. Zelfde signaal als
-// e2e/login.spec.ts gebruikt.
+// Nuxt dev serveert ongebundeld, dus Vue hydrateert merkbaar later dan
+// 'load'. Klik je daarvóór op een submit-knop, dan is @submit.prevent nog
+// niet aangesloten en doet de browser een kale HTML-submit: de pagina laadt
+// opnieuw met de velden in de querystring, en de test loopt vast op een
+// scherm dat er bijna goed uitziet.
+//
+// Er is geen publieke API die zegt "deze knop is gehydrateerd".
+// __vueParentComponent is een ongedocumenteerde Vue-interne: runtime-dom
+// hangt hem aan een element zodra de component eraan gekoppeld is. Dat is
+// bewust een koppeling aan een implementatiedetail, omdat het alternatief
+// (een vaste pauze) traag én onbetrouwbaar is.
+//
+// Verdwijnt de eigenschap bij een Vue-majorupgrade, dan valt deze functie om
+// in een timeout. De melding hieronder zorgt dat de volgende lezer niet gaat
+// zoeken in de applicatie maar hier uitkomt.
 export async function waitForHydration(page: import('@playwright/test').Page) {
-  await page.waitForFunction(() => {
-    const button = document.querySelector('button[type="submit"]')
-    return !!button && '__vueParentComponent' in button
-  })
+  try {
+    await page.waitForFunction(() => {
+      const button = document.querySelector('button[type="submit"]')
+      return !!button && '__vueParentComponent' in button
+    })
+  } catch (cause) {
+    throw new Error(
+      'Hydratie niet waargenomen binnen de timeout. Deze wacht steunt op de ' +
+        'Vue-interne __vueParentComponent; is Vue geüpgraded, controleer dan ' +
+        'of die eigenschap nog bestaat (zie e2e/helpers.ts).',
+      { cause },
+    )
+  }
 }
 
-export async function signIn(page: import('@playwright/test').Page, email: string) {
-  await page.goto('/login')
+export async function signIn(
+  page: import('@playwright/test').Page,
+  email: string,
+  locale: Locale = 'en',
+) {
+  const t = bundles[locale]
+
+  await page.goto(`${prefix(locale)}/login`)
   await waitForHydration(page)
-  await page.getByLabel(/email/i).fill(email)
-  await page.getByRole('button', { name: /link/i }).click()
-  await expect(page.getByText(/inbox/i)).toBeVisible()
+  // De echte vertaling in plaats van een regex: zo breekt deze helper niet
+  // stil op een taal waarin het woord "email" er anders uitziet, en toont
+  // hij meteen aan dat de vertaling ook werkelijk gerenderd wordt.
+  await page.getByLabel(t.auth.email).fill(email)
+  await page.getByRole('button', { name: t.auth.sendLink }).click()
+  await expect(page.getByText(t.auth.linkSent)).toBeVisible()
 
   const link = await readLatestMagicLink(email)
   await page.goto(link)
-  // confirm.vue stuurt pas door zodra de Supabase-client de sessie herkent
-  // en useSupabaseUser() waarheid wordt (dat gebeurt pas na hydratie). Enkel
-  // wachten tot de URL '/confirm' bevat volstaat niet: die staat er al
-  // meteen na de redirect, ruim voordat de sessie is opgeslagen. Wachten tot
-  // we van '/confirm' weg zijn bewijst dat de sessie er echt is.
-  await page.waitForURL((current) => !current.pathname.startsWith('/confirm'))
+  // confirm.vue stuurt pas door zodra de Supabase-client de sessie herkent.
+  // `includes` en niet `startsWith`: onder /nl en /fr staat de taalprefix
+  // vóór /confirm.
+  await page.waitForURL((current) => !current.pathname.includes('/confirm'))
 }

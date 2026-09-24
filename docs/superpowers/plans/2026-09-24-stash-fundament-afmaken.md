@@ -136,19 +136,37 @@ En als nieuwe functie, vóór de `return`:
 
 ```ts
   async function loadMembers(householdId: string): Promise<void> {
-    const { data, error } = await supabase
+    const { data: memberRows, error: memberError } = await supabase
       .from('household_member')
-      .select('user_id, role, user_profile(display_name)')
+      .select('user_id, role')
       .eq('household_id', householdId)
       .order('joined_at')
 
-    if (error) throw error
+    if (memberError) throw memberError
 
-    members.value = (data ?? []).map((row) => ({
+    // household_member.user_id en user_profile.user_id wijzen allebei
+    // onafhankelijk naar auth.users; er is geen foreign key tussen de twee
+    // tabellen onderling. PostgREST kan een geneste select dus niet
+    // vertalen (PGRST200), vandaar twee queries die hier worden samengevoegd.
+    const userIds = (memberRows ?? []).map((row) => row.user_id)
+    const displayNameByUserId = new Map<string, string | null>()
+
+    if (userIds.length > 0) {
+      const { data: profileRows, error: profileError } = await supabase
+        .from('user_profile')
+        .select('user_id, display_name')
+        .in('user_id', userIds)
+
+      if (profileError) throw profileError
+
+      for (const row of profileRows ?? []) {
+        displayNameByUserId.set(row.user_id, row.display_name)
+      }
+    }
+
+    members.value = (memberRows ?? []).map((row) => ({
       userId: row.user_id,
-      // user_profile is hier een enkele rij, geen array: household_member
-      // wijst er met een foreign key naar. De gegenereerde types weten dat.
-      displayName: row.user_profile?.display_name ?? null,
+      displayName: displayNameByUserId.get(row.user_id) ?? null,
       // role is een tekstkolom met een check-constraint, geen Postgres-enum,
       // dus de gegenereerde types geven `string`. Zelfde cast als bij
       // Household['role'] hierboven.
@@ -520,11 +538,20 @@ Run: `npx supabase db reset && npm run test:db -- member-role`
 
 Expected: PASS, acht tests.
 
-- [ ] **Step 5: De bescherming falsifiëren**
+- [ ] **Step 5: Committen wat er nu staat**
+
+Committen gebeurt vóór de falsificatie, niet erna. De volgende stap haalt tijdelijk regels uit het migratiebestand en zet ze daarna terug met `git checkout` — en dat werkt alleen op een bestand dat git al kent. Zou je pas na de falsificatie committen, dan is het bestand op dat moment nog untracked en faalt het herstel.
+
+```bash
+git add supabase/migrations/<timestamp>_set_member_role.sql test/db/member-role.test.ts
+git commit -m "feat: set_member_role om iemand tot eigenaar te promoveren"
+```
+
+- [ ] **Step 6: De bescherming falsifiëren**
 
 Dit is verplicht (zie Global Constraints). Haal de eigenaarscontrole tijdelijk weg en stel vast dat de suite dat merkt.
 
-Verwijder in het zojuist geschreven migratiebestand deze drie regels:
+Verwijder in het migratiebestand deze drie regels:
 
 ```sql
   if not is_household_owner(target_household) then
@@ -539,7 +566,7 @@ npx supabase db reset
 npm run test:db -- member-role
 ```
 
-Expected: FAIL op `een gewoon lid kan zichzelf niet promoveren` én `een buitenstaander kan niemand promoveren`. Blijft één van die twee groen, dan test hij niet wat hij beweert — repareer de test vóór je verdergaat.
+Expected: FAIL op `een gewoon lid kan zichzelf niet promoveren` én `een buitenstaander kan niemand promoveren`. Blijft één van die twee groen, dan test hij niet wat hij beweert — repareer de test vóór je verdergaat, en commit die reparatie.
 
 Herstellen:
 
@@ -549,16 +576,11 @@ npx supabase db reset
 npm run test:db
 ```
 
-Doe hetzelfde nog een keer voor de `not found`-controle: haal die drie regels weg, draai de tests, en stel vast dat `weigert iemand die geen lid is` rood wordt.
+Doe hetzelfde nog een keer voor de `not found`-controle: haal die drie regels weg, draai de tests, stel vast dat `weigert iemand die geen lid is` rood wordt, en herstel op dezelfde manier.
+
+Controleer daarna met `git status` dat de werkboom schoon is: de falsificatie mag geen spoor achterlaten.
 
 Noteer in het taakrapport welke tests bij welke verwijdering rood werden.
-
-- [ ] **Step 6: Committen wat er nu staat**
-
-```bash
-git add supabase/migrations/<timestamp>_set_member_role.sql test/db/member-role.test.ts
-git commit -m "feat: set_member_role om iemand tot eigenaar te promoveren"
-```
 
 - [ ] **Step 7: De vertaalsleutels toevoegen**
 
@@ -1099,7 +1121,7 @@ Controleer dat deze tests echt iets bewaken. Verander in `e2e/helpers.ts` de fun
 
 Run: `npm run test:e2e -- locales`
 
-Expected: FAIL — beide tests, omdat de URL de taalprefix mist. Blijven ze groen, dan controleert de test de taal niet en moet de assertie scherper.
+Expected: FAIL — beide tests. Ze vallen om op `getByLabel`: zonder prefix rendert de app in het Engels, en het Nederlandse respectievelijk Franse label staat er dan niet. De URL-assertie merkt het niet, want met `prefix()` leeg wordt de reguliere expressie `/` en die matcht alles. Blijft een test groen, dan controleert hij de taal helemaal niet en moet de assertie scherper.
 
 Herstellen: zet `prefix` met de hand terug op de vorm uit stap 1. Niet `git checkout` gebruiken — de rest van stap 1 staat nog niet in git en zou daarmee verdwijnen.
 
@@ -1349,9 +1371,10 @@ git commit -m "chore: laatste kleine bevindingen uit plan 1 opruimen"
 
 ## Na afloop
 
-Het fundament is dan af in de zin dat spec §4 volledig is geïmplementeerd en elke bewaking een test heeft die aantoonbaar kan falen. Wat daarna nog openstaat is niet klein maar geblokkeerd of bewust uitgesteld:
+Het fundament is dan af in de zin dat spec §4's rollen en verwijdering zijn geïmplementeerd — een eigenaar kan een lid promoveren of verwijderen — en elke bewaking daarvoor een test heeft die aantoonbaar kan falen. Niet dat heel spec §4 klaar is: dat was hier nooit de belofte (correctie uit bevinding 3 van de eindreview, die eerder hier stond als "spec §4 volledig is geïmplementeerd"). Wat daarna nog openstaat is niet klein maar geblokkeerd, bewust uitgesteld, of gewoon nooit in scope van dit plan:
 
 - **De Workers-runtime is sinds taak 1 van plan 1 niet meer gevalideerd.** Dat kan pas als er een gehost Supabase-project in Frankfurt staat; nu deployen levert een worker op die naar een laptop wijst.
 - **Accountverwijdering voor enige eigenaars** hoort bij de AVG-flow van plan 8, die het huishouden eerst opheft.
+- **Een huishouden hernoemen of opheffen, en een gewoon lid dat zelf vertrekt, hebben geen UI.** De policies bestaan al (`supabase/migrations/20260922105658_household.sql:50,55,69`); dit plan voegde er geen route voor toe. Zie `docs/superpowers/open-bevindingen.md`.
 
 Daarna is de catalogus (`product` en `product_alias`) aan de beurt: het hart van de gedeelde inspanning, en de voorwaarde voor bonnen en voorraad.

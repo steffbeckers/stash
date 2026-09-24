@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withTx, actAs, enableRls, createUser, resetDb } from './helpers'
+import { withTx, actAs, enableRls, createUser, resetDb, withDb, withTwoConnections } from './helpers'
 
 describe('uitnodigingen', () => {
   beforeEach(resetDb)
@@ -223,6 +223,76 @@ describe('uitnodigingen', () => {
         select uses from household_invite where token = ${inv!.create_invite}
       `
       expect(row!.uses).toBe(1)
+    })
+  })
+
+  // De uitnodiging heeft nog één plek. Twee mensen accepteren tegelijk; de
+  // `select ... for update` in accept_invite hoort ervoor te zorgen dat er
+  // precies één binnenkomt. Dat is tot nu toe alleen door inspectie
+  // vastgesteld, nooit gemeten.
+  it('twee gelijktijdige acceptaties gebruiken de laatste plek maar één keer', async () => {
+    const owner = await createUser('gelijktijdig-eigenaar@example.com')
+    const first = await createUser('gelijktijdig-een@example.com')
+    const second = await createUser('gelijktijdig-twee@example.com')
+
+    let token = ''
+    let householdId = ''
+    await withDb(async (sql) => {
+      await sql.begin(async (tx) => {
+        await tx`select set_config('request.jwt.claim.sub', ${owner}, true)`
+        const [hh] = await tx<{ create_household: string }[]>`select create_household('Huis')`
+        householdId = hh!.create_household
+        const [inv] = await tx<{ create_invite: string }[]>`
+          select create_invite(${householdId}::uuid, 7, 1)
+        `
+        token = inv!.create_invite
+      })
+    })
+
+    await withTwoConnections(async (a, b) => {
+      let bRun: Promise<unknown> | undefined
+
+      await a.begin(async (txA) => {
+        await txA`select set_config('request.jwt.claim.sub', ${first}, true)`
+        await txA`select accept_invite(${token})`
+
+        // A houdt nu de rijvergrendeling uit accept_invite's `for update`.
+        // B start hier en moet blijven hangen tot A commit.
+        bRun = b.begin(async (txB) => {
+          await txB`select set_config('request.jwt.claim.sub', ${second}, true)`
+          await txB`select accept_invite(${token})`
+        })
+        // Bevinding 5 van de eindreview: zonder deze regel hangt bRun tot
+        // regel met Promise.allSettled hieronder zonder rejection-handler.
+        // B verwerpt rond het moment dat A commit; wint de main thread die
+        // race niet, dan valt de Vitest-worker om op een unhandled
+        // rejection in plaats van dat de assertie hieronder eerlijk faalt.
+        // Deze catch voorkomt dat zonder de betekenis van de test te
+        // raken — Promise.allSettled([bRun!]) leest straks nog steeds de
+        // originele verwerping van bRun zelf.
+        bRun.catch(() => {})
+
+        // Zonder deze pauze begint B pas ná de commit van A en meet de test
+        // geen gelijktijdigheid meer — dan zou hij ook groen zijn met een
+        // accept_invite zonder vergrendeling.
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      })
+
+      const [outcome] = await Promise.allSettled([bRun!])
+      expect(outcome!.status).toBe('rejected')
+    })
+
+    await withDb(async (sql) => {
+      const [invite] = await sql<{ uses: number }[]>`
+        select uses from household_invite where token = ${token}
+      `
+      expect(invite!.uses).toBe(1)
+
+      const [members] = await sql<{ n: number }[]>`
+        select count(*)::int as n from household_member where household_id = ${householdId}
+      `
+      // de eigenaar plus precies één van de twee gelijktijdige gebruikers
+      expect(members!.n).toBe(2)
     })
   })
 })

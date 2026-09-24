@@ -6,8 +6,15 @@ import postgres from 'postgres'
 // neemt het dan over.
 try {
   process.loadEnvFile()
-} catch {
-  // .env ontbreekt of is onleesbaar — val terug op de check hieronder.
+} catch (cause) {
+  // ENOENT betekent: er is geen .env. Dat is normaal in CI, waar de
+  // variabelen rechtstreeks in de omgeving staan. Elke andere fout betekent
+  // dat er wél een bestand is maar dat het niet te lezen valt — dat stil
+  // inslikken kost later uren zoeken naar een variabele die er wel lijkt te
+  // staan.
+  if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') {
+    throw new Error('.env bestaat maar is niet te lezen', { cause })
+  }
 }
 
 export type Sql = ReturnType<typeof postgres>
@@ -104,4 +111,24 @@ export async function enableRls(tx: Sql, role: 'authenticated' | 'anon' = 'authe
   // `role` komt uit een TS-unietype hierboven, niet uit ongefilterde
   // gebruikersinvoer, dus een letterlijke string hier is veilig.
   await tx.unsafe(`set local role ${role}`)
+}
+
+/**
+ * Draait fn met twee losse verbindingen.
+ *
+ * Gelijktijdigheid is binnen één verbinding niet na te bootsen: postgres.js
+ * stuurt queries op dezelfde verbinding na elkaar, en twee transacties die
+ * elkaar moeten blokkeren hebben per definitie twee sessies nodig.
+ */
+export async function withTwoConnections(
+  fn: (a: Sql, b: Sql) => Promise<void>,
+): Promise<void> {
+  const a = postgres(url!, { max: 1 })
+  const b = postgres(url!, { max: 1 })
+  try {
+    await fn(a, b)
+  } finally {
+    await a.end()
+    await b.end()
+  }
 }

@@ -27,6 +27,13 @@ onMounted(async () => {
     </div>
 
     <section class="mt-8">
+      <h2 class="mb-3 font-semibold">{{ t('householdSettings.members') }}</h2>
+      <UAlert v-if="failed" color="error" :description="t('householdSettings.error')" />
+      <UProgress v-else-if="!ready" animation="carousel" />
+      <HouseholdMembers v-else-if="activeId" :household-id="activeId" />
+    </section>
+
+    <section class="mt-8">
       <h2 class="mb-3 font-semibold">{{ t('householdSettings.invitations') }}</h2>
       <UAlert v-if="failed" color="error" :description="t('householdSettings.error')" />
       <UProgress v-else-if="!ready" animation="carousel" />

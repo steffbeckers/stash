@@ -1,5 +1,4 @@
 <script setup lang="ts">
-const user = useSupabaseUser()
 const route = useRoute()
 const localePath = useLocalePath()
 
@@ -8,9 +7,7 @@ const localePath = useLocalePath()
 // inlogpagina lijkt te komen.
 const target = computed(() => safeInternalPath(route.query.redirect) ?? localePath('/app'))
 
-watch(user, (value) => {
-  if (value) navigateTo(target.value)
-}, { immediate: true })
+useRedirectWhenSignedIn(target)
 </script>
 
 <template>

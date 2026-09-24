@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signIn, readLatestMagicLink, waitForHydration } from './helpers'
+import { signIn, readLatestMagicLink, waitForHydration, prefix, bundles, type Locale } from './helpers'
 
 // Zelfde hydratieprobleem als bij de submit-knoppen in onboarding.spec.ts,
 // maar de "Create invitation link"-knop hangt aan @click buiten een form, dus
@@ -56,6 +56,94 @@ test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, bro
   await guestContext.close()
 })
 
+// Bevinding uit de review van task 3: removeMember() ververste na een
+// succesvolle zelfverwijdering alleen de ledenlijst (loadMembers), nooit
+// households/activeId (refresh) — de module-brede useState die app.vue,
+// settings/places.vue en settings/household.vue allemaal lezen om te weten
+// welk huishouden "actief" is. Verlaat een eigenaar zijn huishouden terwijl
+// er nog een andere eigenaar overblijft (dus geen laatste-eigenaarblokkade),
+// dan bleef activeId stilzwijgend het zojuist verlaten huishouden aanwijzen.
+//
+// Om dat aan te tonen zonder dat een toevallige refresh() van een andere
+// pagina (/app en /settings/household roepen die zelf ook al aan in hun
+// eigen onMounted) het gat overschildert, geeft deze test de kijker een
+// TWEEDE huishouden en controleert — zonder enige navigatie ná de klik op
+// "Remove" — dat de ledenlijst meteen omschakelt naar dat tweede huishouden.
+// Zonder de fix blijft de lijst leeg (RLS filtert Huis1 stil weg zodra je er
+// geen lid meer van bent); mét de fix verschijnt de kijker daar opnieuw, als
+// enig lid en eigenaar van Huis2.
+test('een eigenaar die zichzelf verwijdert, ziet meteen zijn andere huishouden', async ({ page, browser }) => {
+  const ownerEmail = `e2e-leave-owner-${Date.now()}@example.com`
+  await signIn(page, ownerEmail)
+
+  // Eerst Huis2, dan Huis1: create() zet het nieuw aangemaakte huishouden
+  // actief (useHousehold.ts), dus na deze twee stappen is Huis1 actief.
+  await page.goto('/onboarding')
+  await waitForHydration(page)
+  await page.getByLabel('Household name').fill('Huis2')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByText('Huis2')).toBeVisible()
+
+  await page.goto('/onboarding')
+  await waitForHydration(page)
+  await page.getByLabel('Household name').fill('Huis1')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByText('Huis1')).toBeVisible()
+
+  await page.goto('/settings/household')
+  await waitForButtonHydration(page)
+  await page.getByRole('button', { name: 'Create invitation link' }).click()
+  const link = await page.getByRole('textbox', { name: 'Invitation link' }).inputValue()
+
+  const guestContext = await browser.newContext()
+  const guest = await guestContext.newPage()
+  const guestEmail = `e2e-leave-member-${Date.now()}@example.com`
+
+  await guest.goto(link)
+  await expect(guest).toHaveURL(/\/login/)
+  await waitForHydration(guest)
+  await guest.getByLabel(/email/i).fill(guestEmail)
+  await guest.getByRole('button', { name: /link/i }).click()
+  await expect(guest.getByText(/inbox/i)).toBeVisible()
+
+  const magicLink = await readLatestMagicLink(guestEmail)
+  await guest.goto(magicLink)
+  await expect(guest.getByText('Huis1')).toBeVisible()
+  await guestContext.close()
+
+  // Het lid meldde zich aan in een aparte browsercontext; deze verse
+  // paginalading is setup (vóór de eigenlijke controle hieronder) — hier
+  // krijgt de eigenaar het nieuwe lid voor het eerst te zien.
+  await page.goto('/settings/household')
+  await waitForButtonHydration(page)
+
+  const membersSection = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Members', exact: true }) })
+
+  await membersSection.getByRole('button', { name: 'Make owner' }).click()
+  await expect(membersSection.getByRole('button', { name: 'Make owner' })).toHaveCount(0)
+
+  // De eigenlijke controle: de eigenaar verwijdert zichzelf, en daarna wordt
+  // er niets meer genavigeerd of herladen.
+  await membersSection
+    .locator('li')
+    .filter({ hasText: '(you)' })
+    .getByRole('button', { name: 'Remove' })
+    .click()
+
+  // Volgorde is hier van belang: "(you)" stond al vóór de klik in de DOM
+  // (Huis1 had de kijker zelf als eigenaar), dus getByText('(you)') zou
+  // toBeVisible() ook zien tijdens het korte gat vóórdat de DELETE en de
+  // herlaad zijn afgerond — dat bewijst niets. Het aantal `<li>` is de
+  // controle die echt onderscheidt: die blijft op 0 staan zolang activeId
+  // niet is bijgewerkt (Huis1 is leeggefilterd door RLS), en telt pas 1
+  // zodra de ledenlijst daadwerkelijk is omgeschakeld naar Huis2.
+  await expect(membersSection.locator('li')).toHaveCount(1)
+  await expect(membersSection.getByText('(you)')).toBeVisible()
+  await expect(membersSection.getByText('Owner', { exact: true })).toBeVisible()
+})
+
 test('een externe redirect wordt genegeerd', async ({ page }) => {
   const email = `e2e-redirect-${Date.now()}@example.com`
 
@@ -103,4 +191,71 @@ test('een externe redirect wordt genegeerd', async ({ page }) => {
 
   const magicLink4 = await readLatestMagicLink(email4)
   expect(magicLink4).not.toContain('example.com')
+})
+
+// Bevinding uit de review van taak 5, ronde 1: invite/[token].vue
+// lokaliseerde wel '/login' zelf, maar niet de redirect-wáárde
+// ('/invite/<token>' bleef onvertaald). confirm.vue navigeert na het
+// inloggen letterlijk naar die waarde — safeInternalPath() keurt hem goed
+// (het is een geldig intern pad), dus de enige taalbewuste tak
+// (`?? localePath('/app')`) komt nooit aan bod. Een Franse of Nederlandse
+// gast belandde zo zonder foutmelding op de Engelse uitnodigingspagina.
+test('een uitgenodigde zonder account behoudt zijn taal door de hele inlogflow', async ({ page, browser }) => {
+  const locale: Locale = 'fr'
+  const fr = bundles[locale]
+
+  // De eigenaar moet zelf ook op /fr zitten wanneer de link wordt gemaakt.
+  // Bevinding 1 van de eindreview: linkFor() in HouseholdInvites.vue is nu
+  // taalbewust (useLocalePath()), dus de gegenereerde link volgt de actieve
+  // locale van de eigenaar op het moment van klikken. Bleef de eigenaar hier
+  // op het Engelse pad, dan zou de app een Engelse link produceren en zou
+  // deze test weer alleen de consument (invite/[token].vue) bewijzen, niet
+  // de producent.
+  await signIn(page, `e2e-lang-owner-${Date.now()}@example.com`, locale)
+  await page.goto(`${prefix(locale)}/onboarding`)
+  await waitForHydration(page)
+  await page.getByLabel(fr.onboarding.name).fill('Taalhuis')
+  await page.getByRole('button', { name: fr.onboarding.start }).click()
+  await expect(page.getByText('Taalhuis')).toBeVisible()
+
+  await page.goto(`${prefix(locale)}/settings/household`)
+  await waitForButtonHydration(page)
+  await page.getByRole('button', { name: fr.invite.create }).click()
+  // De link die de app werkelijk genereert, niet een met de hand
+  // samengestelde variant. Vóór de fix werkte dit alleen omdat de
+  // gegenereerde link toen nog altijd onvertaald was; dat maskeerde dat
+  // linkFor() zelf de enige plek is die een uitnodigingslink produceert en
+  // toen geen taalprefix meegaf.
+  const link = await page.getByRole('textbox', { name: fr.invite.linkLabel }).inputValue()
+  const token = new URL(link).pathname.split('/').filter(Boolean).pop()!
+
+  // Een gast zonder account op de Franse variant van de uitnodiging — een
+  // geldige, bereikbare route: nuxt.config.ts sluit /fr/invite/* expliciet
+  // uit van de auth-guard, dus de route bestaat en werkt voor wie er via
+  // welke weg dan ook op belandt.
+  const guestContext = await browser.newContext()
+  const guest = await guestContext.newPage()
+  const guestEmail = `e2e-lang-guest-${Date.now()}@example.com`
+
+  await guest.goto(link)
+  // Stap 1 van de bevinding werkte al vóór de fix: '/login' zelf kreeg al
+  // een prefix. Ter controle, niet de kern van de test.
+  await expect(guest).toHaveURL(new RegExp(`${prefix(locale)}/login`))
+
+  await waitForHydration(guest)
+  await guest.getByLabel(fr.auth.email).fill(guestEmail)
+  await guest.getByRole('button', { name: fr.auth.sendLink }).click()
+  await expect(guest.getByText(fr.auth.linkSent)).toBeVisible()
+
+  const magicLink = await readLatestMagicLink(guestEmail)
+  await guest.goto(magicLink)
+
+  // De kern van de bevinding: na het inloggen hoort de gast terug te komen
+  // op de Franse uitnodigingspagina, niet de Engelse. Vóór de fix in
+  // invite/[token].vue landde dit op het onvertaalde /invite/<token>
+  // (de Engelse route onder prefix_except_default); deze regex matcht dat
+  // niet.
+  await expect(guest).toHaveURL(new RegExp(`${prefix(locale)}/invite/${token}`))
+  await expect(guest.getByText('Taalhuis')).toBeVisible()
+  await guestContext.close()
 })

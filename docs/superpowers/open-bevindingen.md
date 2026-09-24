@@ -3,36 +3,47 @@
 Wat er nog openstaat. Niets anders: opgeloste bevindingen verdwijnen hier en
 leven verder in de git-geschiedenis.
 
-Laatst gecontroleerd tegen de code op 2026-09-23.
+Laatst gecontroleerd tegen de code op 2026-09-24.
 
 ## Functionaliteit die de spec vraagt
 
 | Bevinding | Waarom het blijft liggen |
 | --- | --- |
-| **Geen route om iemand tot eigenaar te promoveren** (spec §4). De laatste eigenaar zit vast in zijn huishouden. | Een echte functie met UI, vertalingen, een RPC en tests. Hoort in een plan. De trigger is er al op voorbereid: degraderen mag zodra er een tweede eigenaar is. |
 | **Accountverwijdering is geblokkeerd voor enige eigenaars.** | Bewuste tussenstand. Plan 8 (AVG) moet eerst het huishouden opheffen. Staat zo gedocumenteerd in de migratie én in de test. |
-
-## Testdekking
-
-| Bevinding | Opmerking |
-| --- | --- |
-| Geen e2e-dekking van de inlogflow onder `/nl` of `/fr`. | De drie talen zijn een kernbelofte; alleen `/en` wordt end-to-end gelopen. |
-| Geen echte gelijktijdigheidstest op de laatste gebruikstelling van een uitnodiging. | De logica is door inspectie bevestigd, niet door een test met twee gelijktijdige transacties. |
-| De e2e `signIn`-helper gebruikt regex-selectors die nu bij toeval werken: nl en fr schrijven allebei "e-mail" met koppelteken. | Breekt stil zodra een vertaling verandert. |
-| `__vueParentComponent` in `e2e/login.spec.ts` is een ongedocumenteerde Vue-interne. | Kan bij een Vue-majorupgrade stilletjes aanpassing vragen. |
-| De toelichting bij de `waitForFunction` in `e2e/login.spec.ts` beschrijft het hydratiemechanisme onjuist. | Klopt in conclusie, niet in redenering — misleidend voor wie erop vertrouwt. |
+| **Een huishouden hernoemen of opheffen, en een gewoon lid dat zelf vertrekt, hebben geen UI.** | De policies bestaan al: UPDATE op `household` (`supabase/migrations/20260922105658_household.sql:50`), DELETE op `household` (`:55`, en al bewezen in `test/db/permissions.test.ts`), en de DELETE-policy op `household_member` staat `user_id = auth.uid()` al toe (`:69`) — `removeMember()` in `useHousehold.ts` werkt daar al mee (dezelfde functie die een eigenaar gebruikt om een ander lid te verwijderen). Alleen de UI ontbreekt: er is geen route onder `app/pages/` voor hernoemen of opheffen, en `HouseholdMembers.vue:102` toont de Remove-knop uitsluitend met `v-if="amOwner"`, dus een gewoon lid krijgt hem nooit te zien. Geen van de drie hoorde bij dit plan; hernoemen en opheffen dateren van vóór deze branch. Bevinding 3 van de eindreview. |
 
 ## Bedrading en omgeving
 
 | Bevinding | Opmerking |
 | --- | --- |
 | **De Workers-runtime is sinds taak 1 niet meer gevalideerd.** | Geblokkeerd tot er een gehost Supabase-project in Frankfurt staat. Nu deployen levert een Worker op die naar een laptop wijst. |
-| `NUXT_PUBLIC_APP_VERSION` is in productie niet gezet, dus de worker rapporteert versie `dev`. | Misleidend zodra er meerdere versies draaien. Hoort bij de deploy-configuratie. |
 | `unrs-resolver@1.12.2` staat niet in `allowScripts`, dus zijn postinstall wordt bij elke installatie geblokkeerd met een waarschuwing. | Binnengekomen met `@nuxt/eslint`. De linter draait er zonder probleem zonder, dus het is ruis, geen defect — maar `allowScripts` is een bewuste beveiligingskeuze, en een script toelaten is aan jou. De bevinding over `esbuild@0.25.12` klopte niet: die staat er wél in, net als de vijf andere vermelde pakketten. |
-| De lege `catch` rond `loadEnvFile` maakt geen onderscheid tussen een ontbrekend en een kapot `.env`. | Beide geven dezelfde melding. |
+| **De authguard van `@nuxtjs/supabase` negeert de taalprefix: een uitgelogde bezoeker wordt altijd naar het kale `/login` gestuurd.** | Vastgelegd als letterlijke string op `nuxt.config.ts:22` (`redirectOptions.login: '/login'`). Een uitgelogde bezoeker op `/nl/settings/places` belandt zo op de Engelse inlogpagina, niet op `/nl/login`. Door twee reviewers bevestigd als reëel; terecht buiten scope gehouden van de taak die het vond. — Dit is dezelfde klasse fout als drie eerdere bevindingen in deze codebase: een handgebouwd pad of redirect-waarde die buiten `useLocalePath()` om loopt en zo de taalprefix laat vallen. Inmiddels vier keer gevonden, drie keer gefixt: `emailRedirectTo` in `login.vue` (taak 5), de redirect-waarde na inloggen in `invite/[token].vue` (taak 5, ronde 1), en de uitnodigingslink die `HouseholdInvites.vue` genereert (bevinding 1 van de eindreview — zie git-geschiedenis voor alle drie). Deze authguard-bounce is de enige van de vier die nog openstaat. |
+| **`e2e/invite.spec.ts`'s eerste test zit dicht tegen zijn tijdslimiet aan: 28,9 s en 29,8 s gemeten tegen de standaard 30 s van Playwright.** | Eén keer liep hij hier daadwerkelijk vast, onder parallelle belasting vlak na een `supabase db reset`; in isolatie haalde hij 23,2 s. Niet veroorzaakt door de eindfixronde: die raakt deze test niet, en ook `helpers.ts` of `playwright.config.ts` niet (standaard timeout, standaard aantal workers, beide ongewijzigd). Vermoedelijk koude route-compilatie onder Nuxt dev, maar dat is niet vastgesteld. Wat de oorzaak ook is: slagen op 29,8 s tegen een limiet van 30 s is geen marge, en CI hangt aan deze suite — een tragere runner laat hem vallen. Remedie is de timeout voor deze test verhogen of hem isoleren, niet hem opnieuw draaien tot hij groen is. |
+| In de dev-serverconsole verschijnt `[Vue warn]: Hydration node mismatch` (element `header`) bij het eerste gebruik van een `/nl`- of `/fr`-route in een verse browsercontext, vlak na het inloggen; onder `/en` niet. | Bevestigd met een geïsoleerde, seriële herhaling (`--workers=1`): 0 waarschuwingen bij `e2e/onboarding.spec.ts`'s eerste test (`een nieuwe gebruiker belandt op onboarding en kan een huishouden starten`, `/en`, ongeprefixt), 2/2 over de `/nl`- en `/fr`-flows in `e2e/locales.spec.ts`. De waarschuwing noemt zelf het element dat verschilt (`header`); `app.vue` heeft precies één `<header v-if="user">`, dus SSR en de eerste clientrender zijn het kennelijk oneens of `user` al waar is. Geen enkele test faalt erdoor — een consolewaarschuwing, geen assertie. Niet veroorzaakt door taak 7 (geen van de gewijzigde bestanden raakt `app.vue`, i18n- of authguard-config). De onderliggende oorzaak — waarom dat verschil zich beperkt tot de talen mét prefix — is niet vastgesteld; vermoedelijk iets in de wisselwerking tussen `@nuxtjs/i18n`'s prefix-routering en wanneer de sessie server- versus clientzijdig bekend is, maar dat is een hypothese, geen bevestigde diagnose. |
 
-## Code
+## Kleine punten
 
-| Bevinding | Opmerking |
+Geen van deze blokkeert iets. Ze staan hier omdat ze anders alleen in
+taakrapporten zouden leven, en die zijn bij het sluiten van plan 2 verwijderd.
+Door de eindreview beoordeeld als "meedragen".
+
+| Punt | Waarom het is opgeschreven |
 | --- | --- |
-| `index.vue` en `confirm.vue` dupliceren dezelfde watch-op-`user`. | Bij een derde voorkomen een gedeelde composable maken. |
+| **`errorMessage()` staat lokaal in `HouseholdMembers.vue` terwijl het feit eronder voor de hele app geldt.** | supabase-js gooit geen `Error`-instanties zolang `.throwOnError()` niet wordt gebruikt, dus `cause instanceof Error` is overal onwaar. `HouseholdInvites.vue` en `settings/places.vue` gooien hun oorzaken om dezelfde reden weg. Hoort in `app/utils/`; zodra een tweede component oorzaak-specifiek wil vertakken, is dat het moment. |
+| **Verwijder je jezelf uit je énige huishouden, dan blijf je achter op een lege pagina.** | `refresh()` zet `activeId` op `null`, waarna `HouseholdMembers` en `HouseholdInvites` allebei verdwijnen via `v-else-if="activeId"`. Geen melding, geen doorverwijzing; je komt er alleen uit door op het logo te klikken. De actie is bovendien onomkeerbaar — je hebt een nieuwe uitnodiging nodig — en er is geen bevestigingsstap. |
+| **De gelijktijdigheidstest controleert niet dát de tweede transactie blokkeerde.** | `test/db/household-invite.test.ts` leunt op een pauze van 200 ms om de overlap te maken. Op een zwaarbelaste runner kan B pas starten nadat A al gecommit heeft; de test slaagt dan nog steeds, maar heeft niets gemeten. Goedkope verscherping: vóór het einde van de pauze vaststellen dat `bRun` nog niet is afgerond. |
+| **Alle `security definer`-functies zetten `search_path = public` zonder `pg_temp`.** | Consistent over alle negen functies en conform de projectregels, dus geen afwijking. Maar een definer-functie die relaties oplost tegen een schema dat een aanvaller kan vullen is het standaard hardeningspunt; als het ooit gebeurt, in één veegbeurt over alle functies tegelijk. |
+| **`set_member_role` staat toe dat een eigenaar een ándere eigenaar degradeert.** | Veilig — de macht is symmetrisch en de trigger bewaakt de invariant — maar ruimer dan spec §4 opsomt, en niet getest: de enige degradatietest is die van de laatste eigenaar. Eén positieve test zou de bedoeling vastleggen. |
+| **`e2e/invite.spec.ts` gebruikt in de gast-flows nog regex-selectors** (`/email/i`, `/link/i`, `/inbox/i`). | Taak 5 en 7 maakten echte vertalingen de conventie en zetten `signIn`, `login.spec.ts`, `locales.spec.ts` en `onboarding.spec.ts` om. Dit is de laatste plek waar de oude vorm nog staat; tien aanroepen. |
+| **`refresh()` en `setActive()` zijn het oneens over `localStorage`.** | `setActive()` schrijft zowel `activeId` als de opgeslagen sleutel; `refresh()` schrijft alleen `activeId`. Na een zelfverwijdering wijst de opgeslagen waarde dus naar een huishouden waar je niet meer in zit. Onschadelijk — de eerstvolgende `refresh()` valideert hem weg — maar twee schrijvers met verschillende regels. |
+
+## Valkuilen bij lokaal ontwikkelen
+
+Geen productdefecten — eigenaardigheden van de lokale tooling die eruitzien
+als iets anders (meestal: een wispelturige testsuite) tot je de echte oorzaak
+kent.
+
+| Val | Herkenning en remedie |
+| --- | --- |
+| **Een verweesd `.nuxt/nuxt.lock` laat `npm run test:e2e` (of `nuxt dev` zelf) de ene keer gewoon starten en de andere keer weigeren met `Another Nuxt dev is already running (PID <n>)` — met exact hetzelfde achtergebleven bestand.** | `.nuxt/nuxt.lock` bewaart het PID van de laatst gestarte `nuxt dev` (bron: `node_modules/@nuxt/cli/dist/lockfile-BXsNI9ve.mjs`). De opruimfunctie hangt aan `process.on('exit', ...)`; sterft die server zonder normale afsluiting, dan vuurt dat nooit en blijft het lockbestand staan. Een verweesd lockbestand is op zichzelf meestal onschuldig: `acquireLock` (regels 114-137) controleert via `isLockActive` (regels 94-99) of het genoteerde PID nog leeft, en zo niet, dan verwijdert hij het bestand zelf en start gewoon door (regels 130-133) — geen fout, geen actie nodig. Datzelfde gebeurt bij een lock ouder dan `MAX_LOCK_AGE_MS` (24 uur, regel 97), ongeacht het PID. Dat zag ik hier ook zelf direct gebeuren: het lockbestand stond er nog, ik liet het bewust met rust, en `npm run test:e2e` startte alsof er niets aan de hand was, 14/14 groen. Het wordt pas een probleem zodra Windows dat PID intussen aan een ander, nog levend proces heeft toegewezen — Windows hergebruikt PID's snel. Nuxt's leefbaarheidscontrole is letterlijk `process.kill(pid, 0)` (zelfde bronbestand): die vraagt alleen "bestaat er íéts op dit PID", niet of het om dezelfde `nuxt dev` gaat, dus dat andere proces wordt aangezien voor de oude server en een nieuwe start wordt geweigerd — met de exacte melding hierboven. Mij overkwam dat met PID 3724: `Get-Process -Id 3724` gaf `ProcessName: svchost` terug, geen Nuxt- of node-proces in zicht. Vandaar dat dezelfde situatie — één verweesd lockbestand — de ene keer niets doet en de andere keer de hele suite blokkeert: dat hangt volledig af van wat er op dát moment toevallig op dat PID draait, niet van de testsuite zelf; vanaf de buitenkant oogt dat als wispelturigheid, maar elke afzonderlijke start is volledig bepaald door de stand van zaken op dat moment. Remedie als je wél de foutmelding ziet: verwijder `.nuxt/nuxt.lock` (gitignored via de `.nuxt`-regel, geen broncode, bevestigd met `git check-ignore -v`). **Draai nooit `taskkill /PID <n>` op het gemelde PID.** Tegen de tijd dat je de melding ziet, is dat PID vrijwel zeker alweer iets anders — op deze machine bleek dat, naar verluidt (niet zelf geverifieerd), ooit 1Password te zijn: de password manager die elke commit in deze repo signeert. |
