@@ -221,6 +221,35 @@ describe('rechten', () => {
     })
   })
 
+  // Triggerfuncties horen door niemand rechtstreeks aangeroepen te worden.
+  // PostgREST publiceert ze ook niet — functies die `trigger` teruggeven komen
+  // niet in de schemacache, dus er is geen route naartoe (geverifieerd tegen
+  // het gehoste project: beide geven PGRST202, niet 401). De EXECUTE-grant
+  // stond er niettemin, en dezelfde redenering waarmee migratie
+  // 20260923055349 is_household_member en is_household_owner dichtzette geldt
+  // hier: niet uitbuitbaar, maar functies van dezelfde vorm horen consistent
+  // afgesloten te zijn. Anders dan bij de huishoudfuncties hierboven hoort
+  // `authenticated` hier óók false te zijn: er is geen legitieme aanroeper.
+  it('niemand mag de triggerfuncties rechtstreeks aanroepen', async () => {
+    const triggerFunctions = [
+      'handle_new_user()',
+      'prevent_last_owner_removal()',
+      'protect_profile_privileges()',
+    ]
+
+    await withTx(async (tx) => {
+      for (const fn of triggerFunctions) {
+        const [row] = await tx<{ anon: boolean; auth: boolean }[]>`
+          select
+            has_function_privilege('anon', ${fn}, 'execute') as anon,
+            has_function_privilege('authenticated', ${fn}, 'execute') as auth
+        `
+        expect(row!.anon, `anon op ${fn}`).toBe(false)
+        expect(row!.auth, `authenticated op ${fn}`).toBe(false)
+      }
+    })
+  })
+
   it('een huishouden opheffen werkt ondanks de eigenaarstrigger', async () => {
     const userId = await createUser('opheffen@example.com')
     await withTx(async (tx) => {

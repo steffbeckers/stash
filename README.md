@@ -66,7 +66,32 @@ Three separate suites, each with different requirements:
 
 ## Deploying
 
+### The live environment
+
+| | |
+| --- | --- |
+| Supabase project | `ltauxadznuvzzojtuujp`, region `eu-central-1` (Frankfurt) |
+| API URL | `https://ltauxadznuvzzojtuujp.supabase.co` |
+| Cloudflare Worker | `stash` — https://stash.steff-093.workers.dev |
+
+Auth redirect configuration lives in the Supabase dashboard under
+**Authentication → URL Configuration**, not in this repo. Site URL is the
+Worker URL, and the redirect allowlist is `https://stash.steff-093.workers.dev/**`
+— a glob, so it covers `/confirm`, `/nl/confirm` and `/fr/confirm` together.
+Narrowing that to just `/confirm` reintroduces the locale-loss bug described
+below, in production only.
+
+### Running a deploy
+
 `npm run deploy` runs `nuxt build && wrangler deploy`.
+
+Nitro writes its own `wrangler.json` into `.output/server/` during the build
+and a redirect at `.wrangler/deploy/config.json`, so `wrangler deploy` from
+the repo root uses the generated config rather than the `wrangler.jsonc`
+checked in here. That matters: the generated one adds the
+`no_nodejs_compat_v2` compatibility flag, which the checked-in file does not.
+Wrangler prints which config it picked; `npx wrangler deploy --dry-run` shows
+it without deploying.
 
 This matters because of how Supabase credentials flow through the build:
 `@nuxtjs/supabase` reads `SUPABASE_URL`/`SUPABASE_KEY` (or their
