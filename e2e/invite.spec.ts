@@ -56,6 +56,94 @@ test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, bro
   await guestContext.close()
 })
 
+// Bevinding uit de review van task 3: removeMember() ververste na een
+// succesvolle zelfverwijdering alleen de ledenlijst (loadMembers), nooit
+// households/activeId (refresh) — de module-brede useState die app.vue,
+// settings/places.vue en settings/household.vue allemaal lezen om te weten
+// welk huishouden "actief" is. Verlaat een eigenaar zijn huishouden terwijl
+// er nog een andere eigenaar overblijft (dus geen laatste-eigenaarblokkade),
+// dan bleef activeId stilzwijgend het zojuist verlaten huishouden aanwijzen.
+//
+// Om dat aan te tonen zonder dat een toevallige refresh() van een andere
+// pagina (/app en /settings/household roepen die zelf ook al aan in hun
+// eigen onMounted) het gat overschildert, geeft deze test de kijker een
+// TWEEDE huishouden en controleert — zonder enige navigatie ná de klik op
+// "Remove" — dat de ledenlijst meteen omschakelt naar dat tweede huishouden.
+// Zonder de fix blijft de lijst leeg (RLS filtert Huis1 stil weg zodra je er
+// geen lid meer van bent); mét de fix verschijnt de kijker daar opnieuw, als
+// enig lid en eigenaar van Huis2.
+test('een eigenaar die zichzelf verwijdert, ziet meteen zijn andere huishouden', async ({ page, browser }) => {
+  const ownerEmail = `e2e-leave-owner-${Date.now()}@example.com`
+  await signIn(page, ownerEmail)
+
+  // Eerst Huis2, dan Huis1: create() zet het nieuw aangemaakte huishouden
+  // actief (useHousehold.ts), dus na deze twee stappen is Huis1 actief.
+  await page.goto('/onboarding')
+  await waitForHydration(page)
+  await page.getByLabel('Household name').fill('Huis2')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByText('Huis2')).toBeVisible()
+
+  await page.goto('/onboarding')
+  await waitForHydration(page)
+  await page.getByLabel('Household name').fill('Huis1')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByText('Huis1')).toBeVisible()
+
+  await page.goto('/settings/household')
+  await waitForButtonHydration(page)
+  await page.getByRole('button', { name: 'Create invitation link' }).click()
+  const link = await page.getByRole('textbox', { name: 'Invitation link' }).inputValue()
+
+  const guestContext = await browser.newContext()
+  const guest = await guestContext.newPage()
+  const guestEmail = `e2e-leave-member-${Date.now()}@example.com`
+
+  await guest.goto(link)
+  await expect(guest).toHaveURL(/\/login/)
+  await waitForHydration(guest)
+  await guest.getByLabel(/email/i).fill(guestEmail)
+  await guest.getByRole('button', { name: /link/i }).click()
+  await expect(guest.getByText(/inbox/i)).toBeVisible()
+
+  const magicLink = await readLatestMagicLink(guestEmail)
+  await guest.goto(magicLink)
+  await expect(guest.getByText('Huis1')).toBeVisible()
+  await guestContext.close()
+
+  // Het lid meldde zich aan in een aparte browsercontext; deze verse
+  // paginalading is setup (vóór de eigenlijke controle hieronder) — hier
+  // krijgt de eigenaar het nieuwe lid voor het eerst te zien.
+  await page.goto('/settings/household')
+  await waitForButtonHydration(page)
+
+  const membersSection = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Members', exact: true }) })
+
+  await membersSection.getByRole('button', { name: 'Make owner' }).click()
+  await expect(membersSection.getByRole('button', { name: 'Make owner' })).toHaveCount(0)
+
+  // De eigenlijke controle: de eigenaar verwijdert zichzelf, en daarna wordt
+  // er niets meer genavigeerd of herladen.
+  await membersSection
+    .locator('li')
+    .filter({ hasText: '(you)' })
+    .getByRole('button', { name: 'Remove' })
+    .click()
+
+  // Volgorde is hier van belang: "(you)" stond al vóór de klik in de DOM
+  // (Huis1 had de kijker zelf als eigenaar), dus getByText('(you)') zou
+  // toBeVisible() ook zien tijdens het korte gat vóórdat de DELETE en de
+  // herlaad zijn afgerond — dat bewijst niets. Het aantal `<li>` is de
+  // controle die echt onderscheidt: die blijft op 0 staan zolang activeId
+  // niet is bijgewerkt (Huis1 is leeggefilterd door RLS), en telt pas 1
+  // zodra de ledenlijst daadwerkelijk is omgeschakeld naar Huis2.
+  await expect(membersSection.locator('li')).toHaveCount(1)
+  await expect(membersSection.getByText('(you)')).toBeVisible()
+  await expect(membersSection.getByText('Owner', { exact: true })).toBeVisible()
+})
+
 test('een externe redirect wordt genegeerd', async ({ page }) => {
   const email = `e2e-redirect-${Date.now()}@example.com`
 

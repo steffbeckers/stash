@@ -124,7 +124,23 @@ export function useHousehold() {
       .eq('household_id', householdId)
       .eq('user_id', userId)
     if (error) throw error
-    await loadMembers(householdId)
+
+    // Verwijdert de kijker zichzelf, dan verandert dat welke huishoudens hij
+    // ziet: households/activeId (module-brede useState — zie ook app.vue,
+    // settings/places.vue en settings/household.vue, die er alle drie van
+    // lezen om te bepalen welk huishouden "actief" is) blijven anders
+    // stilzwijgend het zojuist verlaten huishouden aanwijzen, totdat iets
+    // anders toevallig refresh() aanroept. loadMembers(householdId) alleen
+    // verhelpt dat niet — dat ververst enkel de ledenlijst van het
+    // huishouden dat net verlaten is (en levert door RLS meteen een lege
+    // lijst op, zonder foutmelding). Verwijdert de kijker een ánder lid,
+    // dan verandert zijn eigen lidmaatschap niet, dus dan volstaat de
+    // goedkopere loadMembers() zoals voorheen.
+    if (userId === user.value?.sub) {
+      await refresh()
+    } else {
+      await loadMembers(householdId)
+    }
   }
 
   return { households, activeId, members, refresh, setActive, create, loadMembers, setRole, removeMember }
