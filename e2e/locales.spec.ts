@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signIn, prefix, bundles, type Locale } from './helpers'
+import { signIn, prefix, bundles, localeNames, waitForHydration, type Locale } from './helpers'
 
 // De drie talen zijn een kernbelofte van de app, maar tot nu toe liep alleen
 // /en end-to-end. Deze twee tests lopen dezelfde flow onder de andere twee.
@@ -33,11 +33,14 @@ for (const locale of locales) {
     await page.goto('/')
     await expect(page.getByRole('link', { name: bundles.en.landing.getStarted })).toBeVisible()
 
-    // De schakelaar toont de taalcodes; klikken hoort je op dezelfde pagina te
-    // houden, alleen met prefix.
-    await page.getByRole('navigation', { name: bundles.en.nav.language })
-      .getByRole('link', { name: locale, exact: true })
-      .click()
+    // De dropdown reageert pas na hydratie; de landingspagina heeft geen
+    // formulier, dus de standaardselector van waitForHydration werkt hier niet.
+    await waitForHydration(page, 'header button')
+
+    // De schakelaar is een dropdown: eerst openen, dan de taal kiezen.
+    // Klikken hoort je op dezelfde pagina te houden, alleen met prefix.
+    await page.getByRole('button', { name: bundles.en.nav.language }).click()
+    await page.getByRole('menuitem', { name: localeNames[locale] }).click()
 
     await expect(page).toHaveURL(new RegExp(`${prefix(locale)}/?$`))
     // Niet alleen de URL: de pagina moet ook echt in die taal staan. Zonder

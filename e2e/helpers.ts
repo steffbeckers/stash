@@ -14,6 +14,15 @@ export const bundles = { en, nl, fr }
 
 export type Locale = keyof typeof bundles
 
+// De namen zoals ze in de taalschakelaar staan. Ze komen uit de `locales`-
+// array in nuxt.config.ts, die een e2e-test niet kan importeren; verandert
+// daar een naam, dan valt dat hier om en niet stilletjes in de UI.
+export const localeNames: Record<Locale, string> = {
+  en: 'English',
+  nl: 'Nederlands',
+  fr: 'Français',
+}
+
 // nuxt.config.ts gebruikt strategy 'prefix_except_default' met defaultLocale
 // 'en': /login voor Engels, /nl/login en /fr/login voor de rest.
 export function prefix(locale: Locale): string {
@@ -68,6 +77,10 @@ export async function readLatestMagicLink(email: string): Promise<string> {
 // opnieuw met de velden in de querystring, en de test loopt vast op een
 // scherm dat er bijna goed uitziet.
 //
+// De selector is instelbaar omdat niet elke pagina een formulier heeft: de
+// landingspagina heeft alleen de taalschakelaar, en die reageert net zo goed
+// pas na hydratie. De standaardwaarde dekt de formulierpagina's.
+//
 // Er is geen publieke API die zegt "deze knop is gehydrateerd".
 // __vueParentComponent is een ongedocumenteerde Vue-interne: runtime-dom
 // hangt hem aan een element zodra de component eraan gekoppeld is. Dat is
@@ -77,12 +90,15 @@ export async function readLatestMagicLink(email: string): Promise<string> {
 // Verdwijnt de eigenschap bij een Vue-majorupgrade, dan valt deze functie om
 // in een timeout. De melding hieronder zorgt dat de volgende lezer niet gaat
 // zoeken in de applicatie maar hier uitkomt.
-export async function waitForHydration(page: import('@playwright/test').Page) {
+export async function waitForHydration(
+  page: import('@playwright/test').Page,
+  selector = 'button[type="submit"]',
+) {
   try {
-    await page.waitForFunction(() => {
-      const button = document.querySelector('button[type="submit"]')
-      return !!button && '__vueParentComponent' in button
-    })
+    await page.waitForFunction((sel) => {
+      const el = document.querySelector(sel)
+      return !!el && '__vueParentComponent' in el
+    }, selector)
   } catch (cause) {
     throw new Error(
       'Hydratie niet waargenomen binnen de timeout. Deze wacht steunt op de ' +

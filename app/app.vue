@@ -28,12 +28,13 @@ async function signOut() {
          afzender. De navigatie en de uitlogknop blijven wel achter `user`. -->
     <header class="border-b border-muted">
       <UContainer class="flex h-14 items-center gap-4">
-        <template v-if="user">
-          <NuxtLink :to="localePath('/app')" class="shrink-0 font-bold">
-            {{ t('app.name') }}
-          </NuxtLink>
-          <UNavigationMenu :items="navItems" class="flex-1" />
-        </template>
+        <!-- De merknaam staat er altijd en wijst naar de landingspagina, ook
+             ingelogd: die pagina is sinds kort weer bereikbaar en dit is de
+             enige weg erheen zonder de URL te typen. -->
+        <NuxtLink :to="localePath('/')" class="shrink-0 font-bold">
+          {{ t('app.name') }}
+        </NuxtLink>
+        <UNavigationMenu v-if="user" :items="navItems" class="flex-1" />
         <LanguageSwitcher class="ml-auto" />
         <UButton
           v-if="user"
