@@ -92,6 +92,20 @@ npx wrangler secret put NUXT_PUBLIC_APP_VERSION
   time, typically `dev` — and then `/api/health` reports version `dev` in
   production, misleading once more than one version is running)
 
+Redirect URLs need the same attention before that first deploy. Since this
+branch, `emailRedirectTo` is locale-aware — `/confirm`, `/nl/confirm`, or
+`/fr/confirm`, depending on which locale the user was on when they signed in
+(see `app/pages/login.vue`) — instead of the single fixed URL it used to be.
+Locally this is invisible because `supabase/config.toml`'s
+`additional_redirect_urls` is a glob (`http://localhost:3000/*`) that covers
+all three. In production, the redirect URL allowlist lives in the Supabase
+dashboard (Authentication → URL Configuration), outside this repo, and has
+to be set explicitly — add all three confirm URLs (or an equivalent glob)
+for the deployed domain before going live. Miss `/nl` or `/fr` there and
+those magic links silently fall back to the Site URL, dropping the guest's
+language exactly like the bug this branch fixed, just resurrected in
+production instead of locally.
+
 These three are safe to expose this way: all of them end up in
 `runtimeConfig.public` and ship to the browser regardless, the same anon key
 that's already public by design. `wrangler secret put` is used here purely
