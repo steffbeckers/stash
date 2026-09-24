@@ -7,7 +7,10 @@ import en from '../i18n/locales/en.json' with { type: 'json' }
 import nl from '../i18n/locales/nl.json' with { type: 'json' }
 import fr from '../i18n/locales/fr.json' with { type: 'json' }
 
-const bundles = { en, nl, fr }
+// Geëxporteerd zodat andere specs (zoals invite.spec.ts) ook de echte
+// vertaling kunnen gebruiken in plaats van een regex, zonder i18n/locales/*
+// een tweede keer te importeren.
+export const bundles = { en, nl, fr }
 
 export type Locale = keyof typeof bundles
 

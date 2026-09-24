@@ -11,8 +11,14 @@ const householdName = ref('')
 
 onMounted(async () => {
   if (!user.value) {
-    // na inloggen keert de gebruiker hier terug
-    await navigateTo(localePath(`/login?redirect=/invite/${encodeURIComponent(route.params.token as string)}`))
+    // na inloggen keert de gebruiker hier terug. localePath() ook om de
+    // redirect-waarde zelf, niet enkel om '/login': zonder die tweede
+    // localePath() blijft de waarde onvertaald ('/invite/abc'), en
+    // confirm.vue navigeert daar na het inloggen letterlijk naartoe —
+    // safeInternalPath() keurt dat goed (het is een geldig intern pad), dus
+    // de gebruiker belandt zonder foutmelding op de Engelse uitnodiging.
+    const invitePath = localePath(`/invite/${encodeURIComponent(route.params.token as string)}`)
+    await navigateTo(localePath(`/login?redirect=${invitePath}`))
     return
   }
 

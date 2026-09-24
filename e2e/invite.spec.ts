@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signIn, readLatestMagicLink, waitForHydration } from './helpers'
+import { signIn, readLatestMagicLink, waitForHydration, prefix, bundles, type Locale } from './helpers'
 
 // Zelfde hydratieprobleem als bij de submit-knoppen in onboarding.spec.ts,
 // maar de "Create invitation link"-knop hangt aan @click buiten een form, dus
@@ -191,4 +191,61 @@ test('een externe redirect wordt genegeerd', async ({ page }) => {
 
   const magicLink4 = await readLatestMagicLink(email4)
   expect(magicLink4).not.toContain('example.com')
+})
+
+// Bevinding uit de review van taak 5, ronde 1: invite/[token].vue
+// lokaliseerde wel '/login' zelf, maar niet de redirect-wáárde
+// ('/invite/<token>' bleef onvertaald). confirm.vue navigeert na het
+// inloggen letterlijk naar die waarde — safeInternalPath() keurt hem goed
+// (het is een geldig intern pad), dus de enige taalbewuste tak
+// (`?? localePath('/app')`) komt nooit aan bod. Een Franse of Nederlandse
+// gast belandde zo zonder foutmelding op de Engelse uitnodigingspagina.
+test('een uitgenodigde zonder account behoudt zijn taal door de hele inlogflow', async ({ page, browser }) => {
+  const locale: Locale = 'fr'
+  const fr = bundles[locale]
+
+  // Eigenaar maakt een huishouden en een uitnodigingslink; de taal van de
+  // eigenaar zelf doet voor deze bevinding niet ter zake.
+  await signIn(page, `e2e-lang-owner-${Date.now()}@example.com`)
+  await page.goto('/onboarding')
+  await waitForHydration(page)
+  await page.getByLabel('Household name').fill('Taalhuis')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByText('Taalhuis')).toBeVisible()
+
+  await page.goto('/settings/household')
+  await waitForButtonHydration(page)
+  await page.getByRole('button', { name: 'Create invitation link' }).click()
+  const link = await page.getByRole('textbox', { name: 'Invitation link' }).inputValue()
+  const token = new URL(link).pathname.replace('/invite/', '')
+
+  // Een gast zonder account op de Franse variant van de uitnodiging — een
+  // geldige, bereikbare route: nuxt.config.ts sluit /fr/invite/* expliciet
+  // uit van de auth-guard, dus de route bestaat en werkt voor wie er via
+  // welke weg dan ook op belandt.
+  const guestContext = await browser.newContext()
+  const guest = await guestContext.newPage()
+  const guestEmail = `e2e-lang-guest-${Date.now()}@example.com`
+
+  await guest.goto(`${prefix(locale)}/invite/${encodeURIComponent(token)}`)
+  // Stap 1 van de bevinding werkte al vóór de fix: '/login' zelf kreeg al
+  // een prefix. Ter controle, niet de kern van de test.
+  await expect(guest).toHaveURL(new RegExp(`${prefix(locale)}/login`))
+
+  await waitForHydration(guest)
+  await guest.getByLabel(fr.auth.email).fill(guestEmail)
+  await guest.getByRole('button', { name: fr.auth.sendLink }).click()
+  await expect(guest.getByText(fr.auth.linkSent)).toBeVisible()
+
+  const magicLink = await readLatestMagicLink(guestEmail)
+  await guest.goto(magicLink)
+
+  // De kern van de bevinding: na het inloggen hoort de gast terug te komen
+  // op de Franse uitnodigingspagina, niet de Engelse. Vóór de fix in
+  // invite/[token].vue landde dit op het onvertaalde /invite/<token>
+  // (de Engelse route onder prefix_except_default); deze regex matcht dat
+  // niet.
+  await expect(guest).toHaveURL(new RegExp(`${prefix(locale)}/invite/${token}`))
+  await expect(guest.getByText('Taalhuis')).toBeVisible()
+  await guestContext.close()
 })
