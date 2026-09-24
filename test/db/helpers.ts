@@ -105,3 +105,23 @@ export async function enableRls(tx: Sql, role: 'authenticated' | 'anon' = 'authe
   // gebruikersinvoer, dus een letterlijke string hier is veilig.
   await tx.unsafe(`set local role ${role}`)
 }
+
+/**
+ * Draait fn met twee losse verbindingen.
+ *
+ * Gelijktijdigheid is binnen één verbinding niet na te bootsen: postgres.js
+ * stuurt queries op dezelfde verbinding na elkaar, en twee transacties die
+ * elkaar moeten blokkeren hebben per definitie twee sessies nodig.
+ */
+export async function withTwoConnections(
+  fn: (a: Sql, b: Sql) => Promise<void>,
+): Promise<void> {
+  const a = postgres(url!, { max: 1 })
+  const b = postgres(url!, { max: 1 })
+  try {
+    await fn(a, b)
+  } finally {
+    await a.end()
+    await b.end()
+  }
+}
