@@ -46,17 +46,22 @@ describe('rollen wijzigen', () => {
 
   it('een buitenstaander kan niemand promoveren', async () => {
     const owner = await createUser('vreemde-eigenaar@example.com')
+    const member = await createUser('vreemde-lid@example.com')
     const outsider = await createUser('vreemde@example.com')
 
     await withTx(async (tx) => {
       await actAs(tx, owner)
       const [hh] = await tx<{ create_household: string }[]>`select create_household('Huis')`
       const id = hh!.create_household
+      // Doelwit moet een echt lid zijn: mikt de test op de buitenstaander
+      // zelf (die geen lid is), dan vangt de "not found"-controle de
+      // oproep af en zegt de test niets over de eigenaarscontrole.
+      await tx`insert into household_member (household_id, user_id) values (${id}, ${member})`
 
       await actAs(tx, outsider)
       await enableRls(tx)
       await expect(
-        tx.savepoint((sp) => sp`select set_member_role(${id}::uuid, ${outsider}::uuid, 'owner')`),
+        tx.savepoint((sp) => sp`select set_member_role(${id}::uuid, ${member}::uuid, 'owner')`),
       ).rejects.toThrow()
     })
   })
