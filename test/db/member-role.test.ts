@@ -108,9 +108,19 @@ describe('rollen wijzigen', () => {
       const id = hh!.create_household
 
       await enableRls(tx)
+      // Specifieke boodschap, geen kale .rejects.toThrow(): bevinding 8 van
+      // de eindreview. De trigger prevent_last_owner_removal_trigger raadt
+      // deze exacte tekst ('een huishouden moet minstens één eigenaar
+      // houden', in 20260923230000_last_owner_trigger_on_update.sql), en
+      // HouseholdMembers.vue matcht er zelf ook letterlijk op
+      // (errorMessage(cause).includes('minstens één eigenaar')) om de
+      // specifieke melding te tonen in plaats van de generieke. Herschrijft
+      // iemand de trigger z'n boodschap zonder de component aan te passen,
+      // dan degradeert de UI stil naar de generieke foutmelding — zonder
+      // deze assertie zou geen enkele test daarvan iets merken.
       await expect(
         tx.savepoint((sp) => sp`select set_member_role(${id}::uuid, ${owner}::uuid, 'member')`),
-      ).rejects.toThrow()
+      ).rejects.toThrow('minstens één eigenaar')
     })
   })
 
@@ -142,14 +152,39 @@ describe('rollen wijzigen', () => {
     })
   })
 
-  it('anon mag set_member_role niet aanroepen', async () => {
+  // Verving 'anon mag set_member_role niet aanroepen' (bevinding 2 van de
+  // eindreview). Die test riep nooit actAs() aan, dus request.jwt.claim.sub
+  // stond niet en auth.uid() was null — de eérste guard in set_member_role
+  // ('niet ingelogd') vuurde dan, ongeacht of anon wel of niet de
+  // execute-grant had. Verwijder je de `revoke ... from public, anon` uit
+  // 20260924052500_set_member_role.sql, dan bleef die test groen: er werd
+  // nog steeds ergens geweigerd, alleen niet om de reden die de testnaam
+  // beloofde. De grant zelf wordt nu bewezen door de nieuwe regel in
+  // permissions.test.ts (has_function_privilege leest de catalogus
+  // rechtstreeks, los van sessiestatus). Deze test bewijst in plaats daarvan
+  // de eigenaarscontrole zelf, met een signed-in niet-eigenaar en de
+  // specifieke boodschap — dat kan wél nog stuk als iemand die guard ooit
+  // per ongeluk weghaalt of verzwakt.
+  it('een lid dat geen eigenaar is krijgt de specifieke foutmelding, niet zomaar een weigering', async () => {
+    const owner = await createUser('boodschap-eigenaar@example.com')
+    const first = await createUser('boodschap-een@example.com')
+    const second = await createUser('boodschap-twee@example.com')
+
     await withTx(async (tx) => {
-      await enableRls(tx, 'anon')
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Huis')`
+      const id = hh!.create_household
+      await tx`insert into household_member (household_id, user_id) values (${id}, ${first})`
+      await tx`insert into household_member (household_id, user_id) values (${id}, ${second})`
+
+      // first probeert second te promoveren: een signed-in, RLS-onderworpen
+      // niet-eigenaar die een ánder lid raakt, niet zichzelf — een ander
+      // geval dan 'een gewoon lid kan zichzelf niet promoveren' hierboven.
+      await actAs(tx, first)
+      await enableRls(tx)
       await expect(
-        tx.savepoint(
-          (sp) => sp`select set_member_role(gen_random_uuid(), gen_random_uuid(), 'owner')`,
-        ),
-      ).rejects.toThrow()
+        tx.savepoint((sp) => sp`select set_member_role(${id}::uuid, ${second}::uuid, 'owner')`),
+      ).rejects.toThrow('alleen een eigenaar mag rollen wijzigen')
     })
   })
 

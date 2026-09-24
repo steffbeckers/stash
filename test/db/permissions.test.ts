@@ -139,13 +139,19 @@ describe('rechten', () => {
   // Dekt alle functies van dit vlak, niet alleen create_household: de vorige
   // versie van deze test controleerde alleen create_household terwijl de naam
   // "geen enkele" beloofde. is_household_member/is_household_owner (taak 6)
-  // en create_invite/accept_invite (taak 8, daar al gefixt) staan er nu ook in.
+  // en create_invite/accept_invite (taak 8, daar al gefixt) staan er nu ook
+  // in. set_member_role (taak 2) ontbrak hier nog — bevinding 2 van de
+  // eindreview: zonder deze regel bewees niets in de testsuite dat de
+  // `revoke ... from public, anon` in 20260924052500_set_member_role.sql
+  // daadwerkelijk iets tegenhoudt (has_function_privilege leest de grant
+  // rechtstreeks uit de catalogus, los van of er ooit is ingelogd).
   const householdFunctions = [
     'create_household(text)',
     'is_household_member(uuid)',
     'is_household_owner(uuid)',
     'create_invite(uuid, int, int)',
     'accept_invite(text)',
+    'set_member_role(uuid, uuid, text)',
   ]
 
   // De trigger dekte alleen DELETE. Een UPDATE die de rol van de laatste
