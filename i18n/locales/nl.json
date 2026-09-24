@@ -61,6 +61,7 @@
     "roleOwner": "Eigenaar",
     "roleMember": "Lid",
     "you": "jij",
-    "noName": "Naamloos"
+    "noName": "Naamloos",
+    "makeOwner": "Tot eigenaar maken"
   }
 }

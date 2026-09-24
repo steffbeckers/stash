@@ -191,6 +191,14 @@ export type Database = {
       }
       is_household_member: { Args: { target: string }; Returns: boolean }
       is_household_owner: { Args: { target: string }; Returns: boolean }
+      set_member_role: {
+        Args: {
+          new_role: string
+          target_household: string
+          target_user: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

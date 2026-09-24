@@ -61,6 +61,7 @@
     "roleOwner": "Owner",
     "roleMember": "Member",
     "you": "you",
-    "noName": "Unnamed"
+    "noName": "Unnamed",
+    "makeOwner": "Make owner"
   }
 }

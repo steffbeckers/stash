@@ -107,5 +107,15 @@ export function useHousehold() {
     }))
   }
 
-  return { households, activeId, members, refresh, setActive, create, loadMembers }
+  async function setRole(householdId: string, userId: string, role: Member['role']): Promise<void> {
+    const { error } = await supabase.rpc('set_member_role', {
+      target_household: householdId,
+      target_user: userId,
+      new_role: role,
+    })
+    if (error) throw error
+    await loadMembers(householdId)
+  }
+
+  return { households, activeId, members, refresh, setActive, create, loadMembers, setRole }
 }

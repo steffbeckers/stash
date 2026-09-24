@@ -61,6 +61,7 @@
     "roleOwner": "Propriétaire",
     "roleMember": "Membre",
     "you": "vous",
-    "noName": "Sans nom"
+    "noName": "Sans nom",
+    "makeOwner": "Nommer propriétaire"
   }
 }

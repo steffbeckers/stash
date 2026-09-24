@@ -3,10 +3,27 @@ const props = defineProps<{ householdId: string }>()
 
 const { t } = useI18n()
 const user = useSupabaseUser()
-const { members, loadMembers } = useHousehold()
+const { members, loadMembers, setRole } = useHousehold()
 
 const ready = ref(false)
 const error = ref('')
+const busy = ref('')
+
+const amOwner = computed(() =>
+  members.value.some((m) => m.userId === user.value?.sub && m.role === 'owner'),
+)
+
+async function changeRole(userId: string, role: 'owner' | 'member') {
+  busy.value = userId
+  try {
+    await setRole(props.householdId, userId, role)
+    error.value = ''
+  } catch {
+    error.value = t('householdSettings.error')
+  } finally {
+    busy.value = ''
+  }
+}
 
 async function load() {
   try {
@@ -39,6 +56,15 @@ const isSelf = (userId: string) => userId === user.value?.sub
         <UBadge :color="member.role === 'owner' ? 'primary' : 'neutral'" variant="subtle">
           {{ member.role === 'owner' ? t('householdSettings.roleOwner') : t('householdSettings.roleMember') }}
         </UBadge>
+        <UButton
+          v-if="amOwner && member.role === 'member'"
+          size="xs"
+          variant="ghost"
+          :loading="busy === member.userId"
+          @click="changeRole(member.userId, 'owner')"
+        >
+          {{ t('householdSettings.makeOwner') }}
+        </UButton>
       </li>
     </ul>
   </div>
