@@ -62,6 +62,8 @@
     "roleMember": "Lid",
     "you": "jij",
     "noName": "Naamloos",
-    "makeOwner": "Tot eigenaar maken"
+    "makeOwner": "Tot eigenaar maken",
+    "removeMember": "Verwijderen",
+    "cannotRemoveLastOwner": "Een huishouden heeft minstens één eigenaar nodig. Maak eerst iemand anders eigenaar."
   }
 }

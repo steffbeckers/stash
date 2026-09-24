@@ -62,6 +62,8 @@
     "roleMember": "Member",
     "you": "you",
     "noName": "Unnamed",
-    "makeOwner": "Make owner"
+    "makeOwner": "Make owner",
+    "removeMember": "Remove",
+    "cannotRemoveLastOwner": "A household needs at least one owner. Make someone else owner first."
   }
 }

@@ -79,7 +79,7 @@ describe('rollen wijzigen', () => {
       await enableRls(tx)
       await expect(
         tx.savepoint((sp) => sp`select set_member_role(${id}::uuid, ${member}::uuid, 'moderator')`),
-      ).rejects.toThrow()
+      ).rejects.toThrow('onbekende rol')
     })
   })
 
@@ -150,6 +150,26 @@ describe('rollen wijzigen', () => {
           (sp) => sp`select set_member_role(gen_random_uuid(), gen_random_uuid(), 'owner')`,
         ),
       ).rejects.toThrow()
+    })
+  })
+
+  it('een eigenaar kan een lid verwijderen', async () => {
+    const owner = await createUser('verwijder-eigenaar@example.com')
+    const member = await createUser('verwijder-lid@example.com')
+
+    await withTx(async (tx) => {
+      await actAs(tx, owner)
+      const [hh] = await tx<{ create_household: string }[]>`select create_household('Huis')`
+      const id = hh!.create_household
+      await tx`insert into household_member (household_id, user_id) values (${id}, ${member})`
+
+      await enableRls(tx)
+      const removed = await tx`
+        delete from household_member
+        where household_id = ${id} and user_id = ${member}
+        returning user_id
+      `
+      expect(removed.length).toBe(1)
     })
   })
 })

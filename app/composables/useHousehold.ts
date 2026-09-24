@@ -117,5 +117,15 @@ export function useHousehold() {
     await loadMembers(householdId)
   }
 
-  return { households, activeId, members, refresh, setActive, create, loadMembers, setRole }
+  async function removeMember(householdId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('household_member')
+      .delete()
+      .eq('household_id', householdId)
+      .eq('user_id', userId)
+    if (error) throw error
+    await loadMembers(householdId)
+  }
+
+  return { households, activeId, members, refresh, setActive, create, loadMembers, setRole, removeMember }
 }

@@ -3,7 +3,7 @@ const props = defineProps<{ householdId: string }>()
 
 const { t } = useI18n()
 const user = useSupabaseUser()
-const { members, loadMembers, setRole } = useHousehold()
+const { members, loadMembers, setRole, removeMember } = useHousehold()
 
 const ready = ref(false)
 const error = ref('')
@@ -13,6 +13,22 @@ const amOwner = computed(() =>
   members.value.some((m) => m.userId === user.value?.sub && m.role === 'owner'),
 )
 
+// Geverifieerd met de hand (Step 7): een PostgREST-fout van supabase-js is
+// hier geen Error-instantie. useHousehold.ts doet `if (error) throw error`
+// op het resultaat van de aanroep, en zonder .throwOnError() is dat kale
+// object gewoon JSON.parse() van de HTTP-foutrespons — {code, details,
+// hint, message} zonder prototype-keten naar Error. `cause instanceof
+// Error` is dus altijd false voor deze foutmeldingen; vandaar deze
+// structurele check op de vorm van het object in plaats van op zijn type.
+function errorMessage(cause: unknown): string {
+  if (cause instanceof Error) return cause.message
+  if (typeof cause === 'object' && cause !== null && 'message' in cause) {
+    const message = (cause as { message: unknown }).message
+    if (typeof message === 'string') return message
+  }
+  return ''
+}
+
 async function changeRole(userId: string, role: 'owner' | 'member') {
   busy.value = userId
   try {
@@ -20,6 +36,23 @@ async function changeRole(userId: string, role: 'owner' | 'member') {
     error.value = ''
   } catch {
     error.value = t('householdSettings.error')
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function remove(userId: string) {
+  busy.value = userId
+  try {
+    await removeMember(props.householdId, userId)
+    error.value = ''
+  } catch (cause) {
+    // De trigger prevent_last_owner_removal weigert het verwijderen van de
+    // laatste eigenaar. Dat is geen storing maar een regel, dus die krijgt
+    // een eigen melding in plaats van de algemene foutmelding.
+    error.value = errorMessage(cause).includes('minstens één eigenaar')
+      ? t('householdSettings.cannotRemoveLastOwner')
+      : t('householdSettings.error')
   } finally {
     busy.value = ''
   }
@@ -64,6 +97,16 @@ const isSelf = (userId: string) => userId === user.value?.sub
           @click="changeRole(member.userId, 'owner')"
         >
           {{ t('householdSettings.makeOwner') }}
+        </UButton>
+        <UButton
+          v-if="amOwner"
+          size="xs"
+          color="error"
+          variant="ghost"
+          :loading="busy === member.userId"
+          @click="remove(member.userId)"
+        >
+          {{ t('householdSettings.removeMember') }}
         </UButton>
       </li>
     </ul>
