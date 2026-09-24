@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test'
+import { routePath } from '../routes.config'
 // `with { type: 'json' }`: package.json heeft "type": "module", en Node's
 // eigen ESM-loader (die Playwright hier gebruikt, niet enkel een
 // TS-stripper) weigert een JSON-bestand zonder deze importattribuut te laden
@@ -6,6 +7,10 @@ import { expect } from '@playwright/test'
 import en from '../i18n/locales/en.json' with { type: 'json' }
 import nl from '../i18n/locales/nl.json' with { type: 'json' }
 import fr from '../i18n/locales/fr.json' with { type: 'json' }
+
+// De tests gebruiken dezelfde routekaart als nuxt.config.ts, zodat een
+// hernoemd pad hier omvalt in plaats van stilletjes langs de tests te glippen.
+export { routePath } from '../routes.config'
 
 // Geëxporteerd zodat andere specs (zoals invite.spec.ts) ook de echte
 // vertaling kunnen gebruiken in plaats van een regex, zonder i18n/locales/*
@@ -116,7 +121,7 @@ export async function signIn(
 ) {
   const t = bundles[locale]
 
-  await page.goto(`${prefix(locale)}/login`)
+  await page.goto(routePath('login', locale))
   await waitForHydration(page)
   // De echte vertaling in plaats van een regex: zo breekt deze helper niet
   // stil op een taal waarin het woord "email" er anders uitziet, en toont

@@ -10,18 +10,23 @@ const switchLocalePath = useSwitchLocalePath()
 
 const huidige = computed(() => locales.value.find((l) => l.code === locale.value))
 
-// Gewone items met een `to`, bewust geen `type: 'checkbox'`. Die variant
-// rendert als `menuitemcheckbox` — een schakelaar die zijn `to` negeert, dus
-// er gebeurde niets bij het klikken. Zo blijven het echte links: rechtsklikken
-// en openen in een nieuw tabblad werkt, en de actieve taal krijgt een vinkje
-// in plaats van een ander element te zijn.
+// `locale: false` is hier niet optioneel.
 //
-// switchLocalePath() geeft het pad van de huidige route in een andere taal,
-// dus je blijft staan waar je bent in plaats van naar de startpagina te vallen.
+// ULink haalt zijn `to` standaard nog een keer door $localePath, met de
+// *huidige* taal (node_modules/@nuxt/ui/dist/runtime/components/Link.vue).
+// Een pad dat al met /nl of /fr begint laat hij met rust, maar de
+// standaardtaal krijgt geen prefix — dus /confirm werd alsnog omgezet naar
+// /nl/bevestigen, en de Engelse optie wees terug naar de pagina waar je al
+// stond. Nederlands en Frans leken daardoor te werken.
+//
+// switchLocalePath() levert het juiste pad; `locale: false` zorgt dat het
+// blijft staan. Het alternatief (`locale: l.code` en het kale pad doorgeven)
+// werkt ook, maar dan bepaalt ULink de vertaling en wij niet.
 const items = computed(() => [
   locales.value.map((l) => ({
     label: l.name ?? l.code,
     to: switchLocalePath(l.code),
+    locale: false as const,
     trailingIcon: l.code === locale.value ? 'i-lucide-check' : undefined,
   })),
 ])

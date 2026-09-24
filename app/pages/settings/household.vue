@@ -21,7 +21,7 @@ onMounted(async () => {
   <UContainer class="max-w-lg py-12">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">{{ t('householdSettings.title') }}</h1>
-      <UButton variant="link" :to="localePath('/settings/places')">
+      <UButton variant="link" :to="localePath('settings-places')">
         {{ t('places.title') }}
       </UButton>
     </div>

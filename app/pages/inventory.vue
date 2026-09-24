@@ -14,7 +14,7 @@ onMounted(async () => {
     return
   }
   if (households.value.length === 0) {
-    await navigateTo(localePath('/onboarding'))
+    await navigateTo(localePath('onboarding'))
     return
   }
   ready.value = true

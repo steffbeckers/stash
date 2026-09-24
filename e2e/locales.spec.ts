@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signIn, prefix, bundles, localeNames, waitForHydration, type Locale } from './helpers'
+import { signIn, prefix, bundles, localeNames, waitForHydration, type Locale, routePath } from './helpers'
 
 // De drie talen zijn een kernbelofte van de app, maar tot nu toe liep alleen
 // /en end-to-end. Deze twee tests lopen dezelfde flow onder de andere twee.
@@ -19,7 +19,7 @@ for (const locale of locales) {
     // een tautologie die nooit kon falen. Deze regel toetst in plaats
     // daarvan wat de comment hierboven al beweerde: de precieze,
     // taalprefixte onboardingroute.
-    await expect(page).toHaveURL(new RegExp(`${prefix(locale)}/onboarding`))
+    await expect(page).toHaveURL(new RegExp(routePath('onboarding', locale)))
   })
 }
 
@@ -47,6 +47,24 @@ for (const locale of locales) {
     // deze regel zou een schakelaar die enkel de prefix verzet ook slagen.
     await expect(
       page.getByRole('link', { name: bundles[locale].landing.getStarted }),
+    ).toBeVisible()
+  })
+
+  // En weer terug. Dit geval is apart de moeite waard: de standaardtaal krijgt
+  // geen prefix, en ULink localiseert een prefixloos pad standaard alsnog naar
+  // de huidige taal. De Engelse optie wees daardoor terug naar de pagina waar
+  // je al stond, terwijl nl en fr wel werkten — die paden beginnen met een
+  // prefix en worden met rust gelaten. Alleen heen schakelen had dat gemist.
+  test(`vanuit ${locale} kan je terug naar de standaardtaal`, async ({ page }) => {
+    await page.goto(prefix(locale))
+    await waitForHydration(page, 'header button')
+
+    await page.getByRole('button', { name: bundles[locale].nav.language }).click()
+    await page.getByRole('menuitem', { name: localeNames.en }).click()
+
+    await expect(page).toHaveURL(/localhost:3000\/?$/)
+    await expect(
+      page.getByRole('link', { name: bundles.en.landing.getStarted }),
     ).toBeVisible()
   })
 }

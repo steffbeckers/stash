@@ -5,7 +5,7 @@ const localePath = useLocalePath()
 // Zelfde controle als in login.vue (app/utils/safe-redirect.ts): een
 // query-parameter is invoer van buiten, ook als hij van onze eigen
 // inlogpagina lijkt te komen.
-const target = computed(() => safeInternalPath(route.query.redirect) ?? localePath('/app'))
+const target = computed(() => safeInternalPath(route.query.redirect) ?? localePath('inventory'))
 
 useRedirectWhenSignedIn(target)
 </script>

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signIn, readLatestMagicLink, waitForHydration, prefix, bundles, type Locale } from './helpers'
+import { signIn, readLatestMagicLink, waitForHydration, bundles, type Locale, routePath } from './helpers'
 
 // Zelfde hydratieprobleem als bij de submit-knoppen in onboarding.spec.ts,
 // maar de "Create invitation link"-knop hangt aan @click buiten een form, dus
@@ -15,13 +15,13 @@ async function waitForButtonHydration(page: import('@playwright/test').Page) {
 test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, browser }) => {
   // Eigenaar maakt een huishouden en een uitnodigingslink.
   await signIn(page, `e2e-owner-${Date.now()}@example.com`)
-  await page.goto('/onboarding')
+  await page.goto(routePath('onboarding', 'en'))
   await waitForHydration(page)
   await page.getByLabel('Household name').fill('Uitnodigingshuis')
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(page.getByText('Uitnodigingshuis')).toBeVisible()
 
-  await page.goto('/settings/household')
+  await page.goto(routePath('settings/household', 'en'))
   await waitForButtonHydration(page)
   await page.getByRole('button', { name: 'Create invitation link' }).click()
   // Label komt uit invite.linkLabel (i18n), niet meer hardcoded — in het
@@ -40,7 +40,7 @@ test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, bro
   const guestEmail = `e2e-guest-${Date.now()}@example.com`
 
   await guest.goto(link)
-  await expect(guest).toHaveURL(/\/login/)
+  await expect(guest).toHaveURL(new RegExp(routePath('login', 'en')))
   await waitForHydration(guest)
 
   await guest.getByLabel(/email/i).fill(guestEmail)
@@ -78,19 +78,19 @@ test('een eigenaar die zichzelf verwijdert, ziet meteen zijn andere huishouden',
 
   // Eerst Huis2, dan Huis1: create() zet het nieuw aangemaakte huishouden
   // actief (useHousehold.ts), dus na deze twee stappen is Huis1 actief.
-  await page.goto('/onboarding')
+  await page.goto(routePath('onboarding', 'en'))
   await waitForHydration(page)
   await page.getByLabel('Household name').fill('Huis2')
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(page.getByText('Huis2')).toBeVisible()
 
-  await page.goto('/onboarding')
+  await page.goto(routePath('onboarding', 'en'))
   await waitForHydration(page)
   await page.getByLabel('Household name').fill('Huis1')
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(page.getByText('Huis1')).toBeVisible()
 
-  await page.goto('/settings/household')
+  await page.goto(routePath('settings/household', 'en'))
   await waitForButtonHydration(page)
   await page.getByRole('button', { name: 'Create invitation link' }).click()
   const link = await page.getByRole('textbox', { name: 'Invitation link' }).inputValue()
@@ -100,7 +100,7 @@ test('een eigenaar die zichzelf verwijdert, ziet meteen zijn andere huishouden',
   const guestEmail = `e2e-leave-member-${Date.now()}@example.com`
 
   await guest.goto(link)
-  await expect(guest).toHaveURL(/\/login/)
+  await expect(guest).toHaveURL(new RegExp(routePath('login', 'en')))
   await waitForHydration(guest)
   await guest.getByLabel(/email/i).fill(guestEmail)
   await guest.getByRole('button', { name: /link/i }).click()
@@ -114,7 +114,7 @@ test('een eigenaar die zichzelf verwijdert, ziet meteen zijn andere huishouden',
   // Het lid meldde zich aan in een aparte browsercontext; deze verse
   // paginalading is setup (vóór de eigenlijke controle hieronder) — hier
   // krijgt de eigenaar het nieuwe lid voor het eerst te zien.
-  await page.goto('/settings/household')
+  await page.goto(routePath('settings/household', 'en'))
   await waitForButtonHydration(page)
 
   const membersSection = page
@@ -147,7 +147,7 @@ test('een eigenaar die zichzelf verwijdert, ziet meteen zijn andere huishouden',
 test('een externe redirect wordt genegeerd', async ({ page }) => {
   const email = `e2e-redirect-${Date.now()}@example.com`
 
-  await page.goto('/login?redirect=https://example.com/phishing')
+  await page.goto(`${routePath('login', 'en')}?redirect=https://example.com/phishing`)
   await waitForHydration(page)
   await page.getByLabel(/email/i).fill(email)
   await page.getByRole('button', { name: /link/i }).click()
@@ -158,7 +158,7 @@ test('een externe redirect wordt genegeerd', async ({ page }) => {
 
   // En protocol-relatief mag evenmin.
   const email2 = `e2e-redirect2-${Date.now()}@example.com`
-  await page.goto('/login?redirect=//example.com/phishing')
+  await page.goto(`${routePath('login', 'en')}?redirect=//example.com/phishing`)
   await waitForHydration(page)
   await page.getByLabel(/email/i).fill(email2)
   await page.getByRole('button', { name: /link/i }).click()
@@ -172,7 +172,7 @@ test('een externe redirect wordt genegeerd', async ({ page }) => {
   // browser behandelt het toch als protocol-relatief. Dit is het gat dat de
   // review vond in de eerste versie van de guard.
   const email3 = `e2e-redirect3-${Date.now()}@example.com`
-  await page.goto(`/login?redirect=${encodeURIComponent('/\\example.com/phishing')}`)
+  await page.goto(`${routePath('login', 'en')}?redirect=${encodeURIComponent('/\\example.com/phishing')}`)
   await waitForHydration(page)
   await page.getByLabel(/email/i).fill(email3)
   await page.getByRole('button', { name: /link/i }).click()
@@ -183,7 +183,7 @@ test('een externe redirect wordt genegeerd', async ({ page }) => {
 
   // Zelfde gat, met een tab tussen de twee scheidingstekens.
   const email4 = `e2e-redirect4-${Date.now()}@example.com`
-  await page.goto(`/login?redirect=${encodeURIComponent('/\t/example.com/phishing')}`)
+  await page.goto(`${routePath('login', 'en')}?redirect=${encodeURIComponent('/\t/example.com/phishing')}`)
   await waitForHydration(page)
   await page.getByLabel(/email/i).fill(email4)
   await page.getByRole('button', { name: /link/i }).click()
@@ -212,13 +212,13 @@ test('een uitgenodigde zonder account behoudt zijn taal door de hele inlogflow',
   // deze test weer alleen de consument (invite/[token].vue) bewijzen, niet
   // de producent.
   await signIn(page, `e2e-lang-owner-${Date.now()}@example.com`, locale)
-  await page.goto(`${prefix(locale)}/onboarding`)
+  await page.goto(routePath('onboarding', locale))
   await waitForHydration(page)
   await page.getByLabel(fr.onboarding.name).fill('Taalhuis')
   await page.getByRole('button', { name: fr.onboarding.start }).click()
   await expect(page.getByText('Taalhuis')).toBeVisible()
 
-  await page.goto(`${prefix(locale)}/settings/household`)
+  await page.goto(routePath('settings/household', locale))
   await waitForButtonHydration(page)
   await page.getByRole('button', { name: fr.invite.create }).click()
   // De link die de app werkelijk genereert, niet een met de hand
@@ -240,7 +240,7 @@ test('een uitgenodigde zonder account behoudt zijn taal door de hele inlogflow',
   await guest.goto(link)
   // Stap 1 van de bevinding werkte al vóór de fix: '/login' zelf kreeg al
   // een prefix. Ter controle, niet de kern van de test.
-  await expect(guest).toHaveURL(new RegExp(`${prefix(locale)}/login`))
+  await expect(guest).toHaveURL(new RegExp(routePath('login', locale)))
 
   await waitForHydration(guest)
   await guest.getByLabel(fr.auth.email).fill(guestEmail)
@@ -255,7 +255,7 @@ test('een uitgenodigde zonder account behoudt zijn taal door de hele inlogflow',
   // invite/[token].vue landde dit op het onvertaalde /invite/<token>
   // (de Engelse route onder prefix_except_default); deze regex matcht dat
   // niet.
-  await expect(guest).toHaveURL(new RegExp(`${prefix(locale)}/invite/${token}`))
+  await expect(guest).toHaveURL(new RegExp(routePath('invite/[token]', locale, { token })))
   await expect(guest.getByText('Taalhuis')).toBeVisible()
   await guestContext.close()
 })

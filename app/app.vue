@@ -10,13 +10,13 @@ const user = useSupabaseUser()
 const supabase = useSupabaseClient()
 
 const navItems = computed(() => [
-  { label: t('nav.inventory'), to: localePath('/app') },
-  { label: t('nav.settings'), to: localePath('/settings/household') },
+  { label: t('nav.inventory'), to: localePath('inventory') },
+  { label: t('nav.settings'), to: localePath('settings-household') },
 ])
 
 async function signOut() {
   await supabase.auth.signOut()
-  await navigateTo(localePath('/'))
+  await navigateTo(localePath('index'))
 }
 </script>
 
@@ -31,7 +31,7 @@ async function signOut() {
         <!-- De merknaam staat er altijd en wijst naar de landingspagina, ook
              ingelogd: die pagina is sinds kort weer bereikbaar en dit is de
              enige weg erheen zonder de URL te typen. -->
-        <NuxtLink :to="localePath('/')" class="shrink-0 font-bold">
+        <NuxtLink :to="localePath('index')" class="shrink-0 font-bold">
           {{ t('app.name') }}
         </NuxtLink>
         <UNavigationMenu v-if="user" :items="navItems" class="flex-1" />
