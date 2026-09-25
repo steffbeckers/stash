@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { localeCodes, type LocaleCode } from '~~/routes.config'
+
 const route = useRoute()
 const localePath = useLocalePath()
 
@@ -6,8 +8,39 @@ const localePath = useLocalePath()
 // handgeschreven prefixcontrole hier niet volstaat.
 const redirectTo = computed(() => safeInternalPath(route.query.redirect))
 
-const { t } = useI18n()
+const { t, locale, setLocale } = useI18n()
 const supabase = useSupabaseClient()
+
+// De auth-guard van @nuxtjs/supabase stuurt altijd naar het kale /login:
+// redirectOptions.login is één vaste string en kan de taal niet weten. Wie de
+// app in het Nederlands gebruikt en uitgelogd op zijn startscherm-icoon tikt,
+// belandt dus op een Engelse inlogpagina.
+//
+// De taalkeuze staat al in de cookie die detectBrowserLanguage zet
+// (cookieKey 'stash_locale' in nuxt.config.ts). Die volgen we hier alsnog.
+//
+// Niet gekozen: de redirect van @nuxtjs/supabase helemaal vervangen door
+// eigen auth-middleware. Dat lost hetzelfde op maar raakt elke afgeschermde
+// route in de app.
+const gekozenTaal = useCookie<string | null>('stash_locale')
+
+// setLocale() van @nuxtjs/i18n, niet handmatig navigateTo(localePath(...)):
+// detectBrowserLanguage (useCookie: true) herschrijft bij elke serveraanvraag
+// de cookie naar de taal van de huidige route, vóórdat deze pagina rendert.
+// Een handmatige navigateTo() botst daarmee — de doelpagina's eigen aanvraag
+// laat detectBrowserLanguage de cookie álweer terugzetten, en dat kaatst
+// oneindig heen en weer (bevestigd met curl: /login en /nl/inloggen wijzen
+// om beurten naar elkaar, ERR_TOO_MANY_REDIRECTS). setLocale() werkt wel: het
+// schrijft dezelfde cookie die detectBrowserLanguage net zette opnieuw, naar
+// dezelfde taal die we hier al kozen, dus er verandert niets meer op de
+// volgende aanvraag.
+if (
+  gekozenTaal.value
+  && gekozenTaal.value !== locale.value
+  && localeCodes.includes(gekozenTaal.value as LocaleCode)
+) {
+  await setLocale(gekozenTaal.value as LocaleCode)
+}
 
 const email = ref('')
 const sent = ref(false)
