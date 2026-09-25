@@ -51,7 +51,19 @@ export default defineNuxtConfig({
     // <link rel="manifest"> in de head en wint de verkeerde.
     manifest: false,
     injectManifest: {
-      globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+      globPatterns: [
+        '**/*.{js,css,html,svg,png,ico,woff2}',
+        // Los van de lijst hierboven, en bewust geen 'json' daaraan
+        // toevoegen: dat zou ook elke route zijn eigen _payload.json
+        // meenemen, en die verschilt straks per huishouden. De
+        // i18n-berichtenbestanden zijn het tegenovergestelde: identiek voor
+        // iedere gebruiker in dezelfde taal, dus veilig om te precachen.
+        // Zonder dit patroon haalt de offline-pagina haar vertalingen na het
+        // laden opnieuw op via _i18n/<hash>/<taal>/messages.json, en mislukt
+        // dat offline — met rauwe sleutels ("offline.title") als zichtbaar
+        // gevolg in plaats van de al juiste, server-gerenderde tekst.
+        '_i18n/**/*.json',
+      ],
     },
     devOptions: {
       // De standaard navigateFallbackAllowlist van deze module is /\//, wat
