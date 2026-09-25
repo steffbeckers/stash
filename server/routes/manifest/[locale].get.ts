@@ -20,7 +20,14 @@ export default defineEventHandler((event) => {
   const locale = getRouterParam(event, 'locale') as LocaleCode
 
   if (!localeCodes.includes(locale)) {
-    throw createError({ statusCode: 404, statusMessage: 'Onbekende taal' })
+    // Bewust setResponseStatus en niet throw createError. Een geworpen fout gaat
+    // door Nitro's foutpijplijn, die voor een client die HTML prefereert de
+    // SSR-foutpagina rendert — en daar draait de auth-guard van @nuxtjs/supabase
+    // opnieuw, die een niet-uitgezonderde route naar /login stuurt. De 404
+    // overleeft die reis niet. Normaal terugkeren met een expliciete status komt
+    // nooit in die pijplijn terecht.
+    setResponseStatus(event, 404)
+    return { error: 'Onbekende taal' }
   }
 
   const bundel = vertalingen[locale]
