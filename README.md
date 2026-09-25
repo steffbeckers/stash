@@ -69,8 +69,10 @@ Three separate suites, each with different requirements:
 Stash is installable on desktop, Android and iOS. The home-screen icon opens
 the inventory in whichever language you installed from: there are three
 manifests, one per locale (`en`, `nl`, `fr`), served from a single Nitro
-route at `server/routes/manifest/[locale].get.ts`, because `start_url` is
-the one manifest field that has to differ per language.
+route at `server/routes/manifest/[locale].get.ts`. A single shared manifest
+couldn't point `start_url` at each locale's own inventory page, and getting
+that wrong wouldn't just show the wrong language — the install icon would
+open a 404.
 
 Icons are generated from a single source file, `public/icon.svg`. After
 changing it, regenerate every size and variant (favicon, apple-touch-icon,
