@@ -4,8 +4,15 @@
 // zodra die nieuwe versie klaarstaat.
 //
 // Waarom niet 'autoUpdate': elke merge naar main deployt, dus updates komen
-// vaak. Automatisch herladen zou dat kunnen doen terwijl iemand een
-// huishoudnaam of een uitnodiging staat in te vullen.
+// vaak, en automatisch herladen zou dat kunnen doen terwijl iemand een
+// huishoudnaam of een uitnodiging staat in te vullen. 'prompt' voorkomt dat
+// — maar alleen totdat er ergens geklikt wordt. Het isoleert geen tabbladen:
+// skipWaiting() geldt registratiebreed, dus zodra de wachtende worker actief
+// wordt, herladen alle tabbladen die deze melding toonden (vite-plugin-pwa
+// regelt dat zelf via een controlling-listener). Geaccepteerd, want een
+// tabblad dat op de oude versie blijft hangen draait na
+// cleanupOutdatedCaches() (zie app/sw.ts) tegen een precache die niet meer
+// bestaat.
 //
 // De planbrief noemt useRegisterSW(), maar die composable bestaat niet in de
 // geïnstalleerde @vite-pwa/nuxt (1.1.1). De module importeert die zelf uit

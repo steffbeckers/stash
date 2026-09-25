@@ -16,14 +16,22 @@ declare const self: ServiceWorkerGlobalScope
 
 // Dit verbiedt geen skipWaiting() in het algemeen — alleen ongevraagd, tijdens
 // install/activate. Wat hieronder staat is het tegenovergestelde: skipWaiting()
-// uitsluitend als reactie op een klik. PwaUpdatePrompt.vue (Taak 6) stuurt via
+// uitsluitend als reactie op een klik in PwaUpdatePrompt.vue (Taak 6), die via
 // workbox-window's messageSkipWaiting() een { type: 'SKIP_WAITING' }-bericht
-// zodra iemand op "Herladen" klikt — die klik ís de toestemming die de vorige
-// alinea eist. Zonder deze listener komt dat bericht nergens aan: de wachtende
-// worker blijft wachten en de knop doet zichtbaar niets (gevonden in code
-// review na Taak 6; ontbrak hier sinds Taak 4). generateSW zou deze listener
-// zelf meeleveren; bij injectManifest is dit bestand van jou, dus hoort hij
-// hier.
+// stuurt.
+//
+// Die toestemming geldt registratiebreed, niet alleen voor het tabblad waarin
+// geklikt is: skipWaiting() promoot de wachtende worker voor de hele
+// registratie, en vite-plugin-pwa herlaadt daardoor elk tabblad dat de
+// melding toonde, niet enkel het geklikte. Geaccepteerd, want het alternatief
+// is erger — een tabblad dat op de oude versie blijft hangen, draait na
+// cleanupOutdatedCaches() hieronder tegen een precache die niet meer bestaat.
+//
+// Zonder deze listener komt het SKIP_WAITING-bericht nergens aan: de
+// wachtende worker blijft wachten en de knop doet zichtbaar niets (gevonden
+// in code review na Taak 6; ontbrak hier sinds Taak 4). generateSW zou deze
+// listener zelf meeleveren; bij injectManifest is dit bestand van jou, dus
+// hoort hij hier.
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
 })
