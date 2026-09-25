@@ -82,8 +82,9 @@ maskable, and the two manifest PNGs):
 npm run icons
 ```
 
-Don't hand-edit the generated icon files — the next `npm run icons` (or a
-plain build) overwrites them.
+Don't hand-edit the generated icon files — the next `npm run icons` overwrites
+them. A plain `nuxt build` does not: `pwa-assets.config.ts` is read only by
+the `pwa-assets-generator` CLI, not by the build.
 
 ### Testing the PWA
 
