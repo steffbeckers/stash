@@ -82,10 +82,23 @@ Vandaar `injectManifest` en veertig regels eigen code.
 
 ### Wat er geprecacht wordt
 
-De gehashte build-assets (`_nuxt/*`), de icons, en de drie offline-pagina's.
-Meer niet. Alles wat geprecacht wordt, wordt daarmee een bestand dat je
-belooft te kunnen serveren zonder netwerk — en die belofte is alleen te doen
-over bestanden die voor iedereen hetzelfde zijn.
+De gehashte build-assets (`_nuxt/*`), de icons, de drie offline-pagina's, en
+de vertaalbestanden. Alles wat geprecacht wordt, wordt daarmee een bestand dat
+je belooft te kunnen serveren zonder netwerk — en die belofte is alleen te
+doen over bestanden die voor iedereen hetzelfde zijn.
+
+Die vertaalbestanden stonden hier eerst niet bij. Ze bleken tijdens de bouw
+nodig: `@nuxtjs/i18n` haalt de berichten per taal apart op
+(`_i18n/<hash>/<taal>/messages.json`), en zonder netwerk mislukt dat. De
+server-gerenderde offline-pagina komt dan wél correct vertaald binnen, maar
+Nuxt' hydratie overschrijft de tekst daarna met de rauwe sleutels —
+`offline.title` in plaats van "Je bent offline". Een offline-pagina die
+offline onleesbaar wordt is precies wat deze sectie moet voorkomen.
+
+Dat defect was er al, maar bleef verborgen achter een test die op een
+ongecontroleerde client draaide en de race won. Het principe hierboven
+verandert niet: vertalingen zijn voor iedereen hetzelfde en horen er dus in
+thuis.
 
 ### Navigatie: netwerk-eerst, nooit cachen
 
