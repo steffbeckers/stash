@@ -25,6 +25,21 @@ async function wachtOpServiceWorker(page: import('@playwright/test').Page) {
   await page.evaluate(() => navigator.serviceWorker.ready)
   await page.reload()
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null)
+
+  // Bevinding 1 van de eindreview: tot hier bewijst deze functie alleen dat
+  // er een controller is, niet dat de navigatie er ook werkelijk doorheen
+  // liep. Zonder deze regel slaagden alle tests in dit bestand ook als de
+  // navigatiehandler in app/sw.ts was vervangen door "geef altijd de
+  // offline-pagina terug" — de offline-tests hieronder zouden dat toevallig
+  // niet opmerken (ze verwáchten de offline-pagina), de manifest- en
+  // cachetests raken deze functie niet. landing.getStarted staat alleen op
+  // de echte, server-gerenderde landingspagina — nooit in de precache, die
+  // voor '/' geen entry heeft (zie de cachetest hieronder) — dus dit bewijst
+  // dat de zojuist herladen, nu gecontroleerde navigatie echt door
+  // fetch(request) in de navigatiehandler is gegaan. Gefalsificeerd door de
+  // handler tijdelijk altijd matchPrecache() te laten teruggeven: zie
+  // fix-wave-report.md voor de rode en groene run.
+  await expect(page.getByText(en.landing.getStarted)).toBeVisible()
 }
 
 test('offline krijg je de offline-pagina van je eigen taal', async ({ page, context }) => {
@@ -58,8 +73,10 @@ test('een gewone pagina belandt niet in de cache', async ({ page }) => {
   await page.goto(landing.en)
   await wachtOpServiceWorker(page)
 
-  const gecachet = await page.evaluate(async () => {
+  const resultaat = await page.evaluate(async () => {
     const namen = await caches.keys()
+
+    let gecachet = false
     for (const naam of namen) {
       const cache = await caches.open(naam)
       for (const verzoek of await cache.keys()) {
@@ -77,13 +94,29 @@ test('een gewone pagina belandt niet in de cache', async ({ page }) => {
         // controleren zou een precache-entry onder een van de andere twee
         // vormen stilzwijgend doorlaten.
         const pad = new URL(verzoek.url).pathname
-        if (pad === '/' || pad === '/index.html' || pad === '/nl') return true
+        if (pad === '/' || pad === '/index.html' || pad === '/nl') gecachet = true
       }
     }
-    return false
+
+    return { namen, gecachet }
   })
 
-  expect(gecachet).toBe(false)
+  expect(resultaat.gecachet).toBe(false)
+
+  // Bevinding 12 van de eindreview: een whitelist in plaats van enkel de drie
+  // padnamen hierboven. Er bestaat vandaag geen runtime cache — alleen de
+  // precache die precacheAndRoute() in app/sw.ts vult — dus "precies één
+  // cache, met 'precache' in de naam" klopt nu per constructie. De winst zit
+  // in wat er gebeurt zodra dat verandert: komt er ooit een runtime-
+  // cachestrategie bij (een registerRoute met bijvoorbeeld CacheFirst), dan
+  // verschijnt er een tweede cache en faalt deze regel meteen — ook als die
+  // nieuwe cache toevallig geen van de drie paden hierboven bevat, en dus
+  // door de padnamencontrole alleen heen zou glippen. Die padnamencontrole
+  // blijft er met opzet naast staan: ze bewijst iets anders (welke URL's
+  // afwezig zijn, niet enkel hoeveel caches er zijn) en is goedkoop genoeg om
+  // niet weg te gooien.
+  expect(resultaat.namen.length, `caches: ${resultaat.namen.join(', ')}`).toBe(1)
+  expect(resultaat.namen[0]).toContain('precache')
 })
 
 // De service worker mag API-verkeer met rust laten. Offline hoort /api/health
