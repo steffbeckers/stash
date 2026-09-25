@@ -25,6 +25,10 @@
     "body": "Stash heeft verbinding nodig voor deze pagina. Er gaat niets verloren — probeer opnieuw zodra je weer online bent.",
     "retry": "Opnieuw proberen"
   },
+  "pwa": {
+    "updateAvailable": "Er is een nieuwe versie beschikbaar.",
+    "reload": "Herladen"
+  },
   "appHome": {
     "title": "Je huishouden"
   },

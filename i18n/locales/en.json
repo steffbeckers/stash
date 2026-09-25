@@ -25,6 +25,10 @@
     "body": "Stash needs a connection for this page. Nothing is lost — try again once you are back online.",
     "retry": "Try again"
   },
+  "pwa": {
+    "updateAvailable": "A new version is available.",
+    "reload": "Reload"
+  },
   "appHome": {
     "title": "Your household"
   },

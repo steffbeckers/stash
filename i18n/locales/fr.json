@@ -25,6 +25,10 @@
     "body": "Stash a besoin d'une connexion pour cette page. Rien n'est perdu — réessayez dès que vous êtes de nouveau en ligne.",
     "retry": "Réessayer"
   },
+  "pwa": {
+    "updateAvailable": "Une nouvelle version est disponible.",
+    "reload": "Recharger"
+  },
   "appHome": {
     "title": "Votre ménage"
   },

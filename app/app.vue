@@ -57,5 +57,6 @@ useHead({
     </header>
     <NuxtRouteAnnouncer />
     <NuxtPage />
+    <PwaUpdatePrompt />
   </UApp>
 </template>
