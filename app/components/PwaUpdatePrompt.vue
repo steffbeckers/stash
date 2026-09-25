@@ -7,12 +7,15 @@
 // vaak, en automatisch herladen zou dat kunnen doen terwijl iemand een
 // huishoudnaam of een uitnodiging staat in te vullen. 'prompt' voorkomt dat
 // — maar alleen totdat er ergens geklikt wordt. Het isoleert geen tabbladen:
-// skipWaiting() geldt registratiebreed, dus zodra de wachtende worker actief
-// wordt, herladen alle tabbladen die deze melding toonden (vite-plugin-pwa
-// regelt dat zelf via een controlling-listener). Geaccepteerd, want een
-// tabblad dat op de oude versie blijft hangen draait na
-// cleanupOutdatedCaches() (zie app/sw.ts) tegen een precache die niet meer
-// bestaat.
+// skipWaiting() geldt registratiebreed, en de herlaad-listener die
+// vite-plugin-pwa daarna opzet hangt aan het controlling-event — dat vuurt
+// voor elke client die de browser op dat moment als gecontroleerd beschouwt,
+// niet specifiek voor de tabbladen die deze melding toonden (volledige
+// toelichting in app/sw.ts, bij de SKIP_WAITING-listener). Geaccepteerd,
+// want een tabblad dat op de oude versie blijft hangen draait tegen een
+// precache waar PrecacheController.activate() de entries van de vorige
+// build net uit heeft verwijderd — niet cleanupOutdatedCaches(), zie
+// app/sw.ts voor het onderscheid.
 //
 // De planbrief noemt useRegisterSW(), maar die composable bestaat niet in de
 // geïnstalleerde @vite-pwa/nuxt (1.1.1). De module importeert die zelf uit
@@ -37,20 +40,44 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <!-- role="status" + aria-live="polite": deze melding verschijnt zonder dat
-       iemand er iets voor doet. Zonder deze twee blijft een schermlezer stil
-       tot iemand toevallig met de tab-toets langs de knop komt. -->
+  <!-- Een losse, altijd aanwezige live region — niet de zichtbare banner
+       hieronder. role="status" + aria-live="polite" moeten al in de DOM
+       staan vóórdat de inhoud verschijnt, anders is er nooit een "voor"
+       waarin een schermlezer dit element als live region heeft leren kennen.
+       Zet je in plaats daarvan de hele banner achter v-if (zoals hieronder,
+       maar dan mét deze twee attributen erbij), dan ontstaan het element én
+       zijn inhoud in dezelfde slag — precies de situatie waarin de melding
+       niet wordt aangekondigd. Vandaar dit element apart: het bestaat vanaf
+       de eerste render, en alleen zijn tekstinhoud wisselt. sr-only, want
+       hij is uitsluitend voor schermlezers — de zichtbare tekst staat al in
+       de banner hieronder, die zelf geen aria-live meer draagt (dat zou de
+       melding dubbel laten voorlezen). role="status" impliceert
+       aria-live="polite" al; toch allebei, vriendelijker voor oudere
+       hulptechnologie. -->
+  <div role="status" aria-live="polite" class="sr-only">
+    {{ pwa?.needRefresh ? t('pwa.updateAvailable') : '' }}
+  </div>
+
   <div
     v-if="pwa?.needRefresh"
-    role="status"
-    aria-live="polite"
     class="fixed inset-x-0 bottom-0 z-50 border-t border-muted bg-default p-4"
   >
     <UContainer class="flex items-center justify-between gap-4">
       <p>{{ t('pwa.updateAvailable') }}</p>
-      <UButton size="sm" @click="pwa?.updateServiceWorker(true)">
-        {{ t('pwa.reload') }}
-      </UButton>
+      <div class="flex items-center gap-2">
+        <UButton size="sm" @click="pwa?.updateServiceWorker(true)">
+          {{ t('pwa.reload') }}
+        </UButton>
+        <!-- cancelPrompt() (usePWA(), @vite-pwa/nuxt) zet needRefresh terug
+             op false zonder te herladen — de update blijft klaarstaan voor de
+             eerstvolgende gelegenheid. Zonder deze knop blijft de banner de
+             onderkant van elke pagina permanent afdekken, inclusief de
+             submit-knoppen van precies de half ingevulde formulieren die
+             registerType: 'prompt' moest beschermen. -->
+        <UButton size="sm" variant="ghost" color="neutral" @click="pwa?.cancelPrompt()">
+          {{ t('pwa.dismiss') }}
+        </UButton>
+      </div>
     </UContainer>
   </div>
 </template>

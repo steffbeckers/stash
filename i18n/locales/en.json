@@ -27,7 +27,8 @@
   },
   "pwa": {
     "updateAvailable": "A new version is available.",
-    "reload": "Reload"
+    "reload": "Reload",
+    "dismiss": "Later"
   },
   "appHome": {
     "title": "Your household"

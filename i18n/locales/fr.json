@@ -27,7 +27,8 @@
   },
   "pwa": {
     "updateAvailable": "Une nouvelle version est disponible.",
-    "reload": "Recharger"
+    "reload": "Recharger",
+    "dismiss": "Plus tard"
   },
   "appHome": {
     "title": "Votre ménage"

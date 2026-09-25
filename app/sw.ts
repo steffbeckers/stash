@@ -22,10 +22,18 @@ declare const self: ServiceWorkerGlobalScope
 //
 // Die toestemming geldt registratiebreed, niet alleen voor het tabblad waarin
 // geklikt is: skipWaiting() promoot de wachtende worker voor de hele
-// registratie, en vite-plugin-pwa herlaadt daardoor elk tabblad dat de
-// melding toonde, niet enkel het geklikte. Geaccepteerd, want het alternatief
-// is erger — een tabblad dat op de oude versie blijft hangen, draait na
-// cleanupOutdatedCaches() hieronder tegen een precache die niet meer bestaat.
+// registratie. vite-plugin-pwa herlaadt daardoor niet slechts "elk tabblad
+// dat de melding toonde" — de herlaad-listener hangt aan het
+// controlling-event (workbox-window's wrapper om het native
+// controllerchange-event van elk tabblads eigen navigator.serviceWorker),
+// en dat vuurt voor elke client die de browser op dat moment als
+// gecontroleerd beschouwt, niet specifiek voor de tabbladen die zelf de
+// melding lieten zien. Geaccepteerd, want het alternatief is erger — een
+// tabblad dat op de oude versie blijft hangen, draait tegen een precache
+// waar PrecacheController.activate() (automatisch gekoppeld door
+// precacheAndRoute() hieronder — zie de toelichting bij
+// cleanupOutdatedCaches()) de entries van de vorige build net uit heeft
+// verwijderd.
 //
 // Zonder deze listener komt het SKIP_WAITING-bericht nergens aan: de
 // wachtende worker blijft wachten en de knop doet zichtbaar niets (gevonden
@@ -36,10 +44,21 @@ self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
-// cleanupOutdatedCaches ruimt de precache van vorige builds op. Zonder dit
-// stapelen oude versies zich op in de opslag van het toestel, en op iOS —
-// waar de quota krap zijn — is dat de manier om de hele cache te laten
-// wegvallen.
+// Niet cleanupOutdatedCaches() hieronder, maar PrecacheController.activate()
+// is wat de precache van de vorige build daadwerkelijk opruimt.
+// precacheAndRoute() hieronder koppelt activate() automatisch aan het
+// activate-event; die methode vergelijkt de huidige cache-inhoud met het
+// nieuwe manifest en verwijdert wat er niet meer in staat
+// (node_modules/workbox-precaching/PrecacheController.js). cleanupOutdatedCaches()
+// doet iets anders: hij verwijdert alleen caches waarvan de náám verschilt
+// van de huidige precachenaam (utils/deleteOutdatedCaches.js), en die naam is
+// gelijk over builds van dezelfde Workbox-versie heen — bij een gewone
+// redeploy vindt hij dus niets om op te ruimen. Wat hij wél afvangt: een
+// wisseling van Workbox-versie (of cacheId), waarbij de precachenaam zelf
+// verandert en een oude cache anders voorgoed onder zijn oude naam was blijven
+// staan. Zonder deze twee samen stapelen oude versies zich op in de opslag
+// van het toestel, en op iOS — waar de quota krap zijn — is dat de manier om
+// de hele cache te laten wegvallen.
 cleanupOutdatedCaches()
 
 precacheAndRoute(self.__WB_MANIFEST, {
@@ -48,7 +67,12 @@ precacheAndRoute(self.__WB_MANIFEST, {
   // standaard inclusief queryparameters en mist hem daardoor — met een
   // NUXT_E7002 in de console tot gevolg. De parameter identificeert de build,
   // en de precache komt per definitie uit dezelfde build als deze worker.
-  ignoreURLParametersMatching: [/^_b$/],
+  //
+  // Deze array vervangt Workbox' eigen default voor
+  // ignoreURLParametersMatching, dus /^utm_/ en /^fbclid$/ staan er met opzet
+  // nog naast _b — anders verliest een precache-lookup voor elke URL met zo'n
+  // parameter stilzwijgend zijn match.
+  ignoreURLParametersMatching: [/^_b$/, /^utm_/, /^fbclid$/],
 })
 
 // Netwerk-eerst, en het antwoord wordt niet bewaard.

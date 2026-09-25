@@ -27,7 +27,8 @@
   },
   "pwa": {
     "updateAvailable": "Er is een nieuwe versie beschikbaar.",
-    "reload": "Herladen"
+    "reload": "Herladen",
+    "dismiss": "Later"
   },
   "appHome": {
     "title": "Je huishouden"
