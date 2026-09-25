@@ -20,6 +20,11 @@
     "getStarted": "Aan de slag",
     "goToApp": "Naar je voorraad"
   },
+  "offline": {
+    "title": "Je bent offline",
+    "body": "Stash heeft verbinding nodig voor deze pagina. Er gaat niets verloren — probeer opnieuw zodra je weer online bent.",
+    "retry": "Opnieuw proberen"
+  },
   "appHome": {
     "title": "Je huishouden"
   },

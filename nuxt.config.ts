@@ -1,4 +1,4 @@
-import { defaultLocale, routePaths, routePath, supabaseExclude } from './routes.config'
+import { defaultLocale, localeCodes, routePaths, routePath, supabaseExclude } from './routes.config'
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-21',
@@ -66,6 +66,13 @@ export default defineNuxtConfig({
     cloudflare: {
       deployConfig: true,
       nodeCompat: true,
+    },
+    prerender: {
+      // Statische bestanden in .output/public, zodat de service worker ze kan
+      // precachen en Cloudflare ze rechtstreeks serveert. Ze staan in
+      // publicRoutes, anders stuurt de auth-guard ze tijdens het prerenderen
+      // naar de inlogpagina.
+      routes: localeCodes.map((code) => routePath('offline', code)),
     },
   },
   routeRules: {
