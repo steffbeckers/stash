@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { localeCodes, routePath } from '../../routes.config'
+import { localeCodes, manifestPath, routePath } from '../../routes.config'
 import { bundles, localeNames, prefix } from '../helpers'
 
 // Eén manifest per taal, want start_url bepaalt wat het icoon op het
@@ -7,7 +7,7 @@ import { bundles, localeNames, prefix } from '../helpers'
 // de browser dit als één app ziet en niet als drie.
 test('elk manifest opent de voorraad in zijn eigen taal', async ({ request }) => {
   for (const taal of localeCodes) {
-    const antwoord = await request.get(`/manifest/${taal}`)
+    const antwoord = await request.get(manifestPath(taal))
 
     expect(antwoord.status(), `status voor ${taal}`).toBe(200)
     expect(antwoord.headers()['content-type'], `content-type voor ${taal}`)
@@ -21,6 +21,8 @@ test('elk manifest opent de voorraad in zijn eigen taal', async ({ request }) =>
 })
 
 test('een onbekende taal geeft geen manifest', async ({ request }) => {
+  // Bewust niet manifestPath('de'): 'de' is geen LocaleCode, en dat is precies
+  // het punt van deze test — een taal buiten de configuratie moet 404 geven.
   const antwoord = await request.get('/manifest/de')
   expect(antwoord.status()).toBe(404)
 })
@@ -28,7 +30,7 @@ test('een onbekende taal geeft geen manifest', async ({ request }) => {
 test('de pagina verwijst naar het manifest van de getoonde taal', async ({ page }) => {
   await page.goto('/nl')
   const href = await page.getAttribute('link[rel="manifest"]', 'href')
-  expect(href).toBe('/manifest/nl')
+  expect(href).toBe(manifestPath('nl'))
 })
 
 // De test hierboven leest de href vlak na page.goto(): op dat moment heeft
@@ -51,7 +53,7 @@ test('de pagina verwijst naar het manifest van de getoonde taal', async ({ page 
 // eigen actionability-wachten op de klik hieronder volstaat.
 test('de manifest-link volgt een taalwissel zonder herlading', async ({ page }) => {
   await page.goto(prefix('fr'))
-  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest/fr')
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', manifestPath('fr'))
 
   // Een sentinel op window overleeft alleen een navigatie die geen nieuwe
   // pagina laadt. Zonder deze controle zou een schakelaar die per ongeluk
@@ -72,5 +74,5 @@ test('de manifest-link volgt een taalwissel zonder herlading', async ({ page }) 
   const overleefd = await page.evaluate(() => '__geenHerlading' in window)
   expect(overleefd, 'de taalwissel mag geen paginalading veroorzaken').toBe(true)
 
-  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest/nl')
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', manifestPath('nl'))
 })

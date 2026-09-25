@@ -78,6 +78,20 @@ export function routeGlob(route: RouteKey, locale: LocaleCode): string {
 }
 
 /**
+ * Het pad van het per-taal manifest, geserveerd door
+ * `server/routes/manifest/[locale].get.ts`.
+ *
+ * Dit is geen route uit `routePaths`: het is een server-route, niet een Nuxt-
+ * pagina, en gaat dus niet door de i18n- of auth-middleware. Stond hier tot
+ * voor kort vijf keer met de hand uitgeschreven — één keer in `app/app.vue`
+ * en vier keer in `e2e/pwa/manifest.spec.ts` — dezelfde valkuil als de routes
+ * hierboven, alleen nog niet achter deze functie vandaan.
+ */
+export function manifestPath(locale: LocaleCode): string {
+  return `/manifest/${locale}`
+}
+
+/**
  * Welke offline-pagina hoort bij een pad?
  *
  * De service worker gebruikt dit als het netwerk wegvalt. Hij draait buiten
