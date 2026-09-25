@@ -14,6 +14,20 @@ declare const self: ServiceWorkerGlobalScope
 // e2e/pwa/offline.spec.ts wachten daar expliciet op (wachtOpServiceWorker),
 // anders meten ze de fetch-handler hieronder helemaal niet.
 
+// Dit verbiedt geen skipWaiting() in het algemeen — alleen ongevraagd, tijdens
+// install/activate. Wat hieronder staat is het tegenovergestelde: skipWaiting()
+// uitsluitend als reactie op een klik. PwaUpdatePrompt.vue (Taak 6) stuurt via
+// workbox-window's messageSkipWaiting() een { type: 'SKIP_WAITING' }-bericht
+// zodra iemand op "Herladen" klikt — die klik ís de toestemming die de vorige
+// alinea eist. Zonder deze listener komt dat bericht nergens aan: de wachtende
+// worker blijft wachten en de knop doet zichtbaar niets (gevonden in code
+// review na Taak 6; ontbrak hier sinds Taak 4). generateSW zou deze listener
+// zelf meeleveren; bij injectManifest is dit bestand van jou, dus hoort hij
+// hier.
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})
+
 // cleanupOutdatedCaches ruimt de precache van vorige builds op. Zonder dit
 // stapelen oude versies zich op in de opslag van het toestel, en op iOS —
 // waar de quota krap zijn — is dat de manier om de hele cache te laten

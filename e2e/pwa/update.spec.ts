@@ -12,3 +12,21 @@ test('er staat geen updatemelding bij een verse installatie', async ({ page }) =
 
   await expect(page.getByText(en.pwa.updateAvailable)).toHaveCount(0)
 })
+
+// Een structurele test — die pint normaal een implementatiedetail vast in
+// plaats van gedrag, en dat is elders in dit plan terecht afgewezen omdat het
+// gedrag zelf al door een andere test werd gedekt; de structurele check voegde
+// daar niets toe. Hier ligt dat anders. Het positieve geval — een echt
+// wachtende worker die op de klik reageert — vraagt twee builds en is dus niet
+// in één build te automatiseren (zie Step 6 in het taakrapport); er bestaat
+// hier geen enkele gedragstest die dit kan dekken. Deze assertie is precies
+// degene die het ontbreken van de listener in app/sw.ts had gevangen: zonder
+// listener komt de letterlijke string 'SKIP_WAITING' nergens in sw.js voor
+// (bevestigd door de listener tijdelijk te verwijderen en deze test rood te
+// zien gaan — zie het taakrapport).
+test('sw.js handelt een SKIP_WAITING-bericht af', async ({ request }) => {
+  const antwoord = await request.get('/sw.js')
+  const inhoud = await antwoord.text()
+
+  expect(inhoud).toContain('SKIP_WAITING')
+})

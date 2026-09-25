@@ -30,8 +30,13 @@ const { t } = useI18n()
 </script>
 
 <template>
+  <!-- role="status" + aria-live="polite": deze melding verschijnt zonder dat
+       iemand er iets voor doet. Zonder deze twee blijft een schermlezer stil
+       tot iemand toevallig met de tab-toets langs de knop komt. -->
   <div
     v-if="pwa?.needRefresh"
+    role="status"
+    aria-live="polite"
     class="fixed inset-x-0 bottom-0 z-50 border-t border-muted bg-default p-4"
   >
     <UContainer class="flex items-center justify-between gap-4">
