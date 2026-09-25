@@ -237,15 +237,21 @@ Drie dingen daartegen:
   Dat isoleert geen tabbladen, en die nuance hoort hier te staan omdat ze bij
   het bouwen pas bleek. `skipWaiting()` promoveert de wachtende worker voor de
   hele registratie; er bestaat geen variant die alleen de afzender raakt. Klik
-  je in het ene tabblad op Herladen, dan herlaadt elk ander tabblad dat de
-  melding toont mee.
+  je in het ene tabblad op Herladen, dan herladen alle tabbladen mee die onder
+  de worker vallen — vite-plugin-pwa reageert op `controlling`, en dat vuurt
+  voor elke gecontroleerde client, met of zonder melding in beeld.
 
   Dat is bewust aanvaard, want het alternatief is slechter. Een tabblad dat
-  blijft staan draait oude code terwijl `cleanupOutdatedCaches()` bij activatie
-  de bijbehorende precache net heeft gewist; de eerstvolgende lazy geladen
-  chunk vraagt dan een URL op die de deploy van de server verwijderd heeft. Een
-  herlading is van die twee de zachtste afloop.
-- **`cleanupOutdatedCaches()`** — oude builds blijven niet liggen.
+  blijft staan draait oude code terwijl de nieuwe worker de bijbehorende
+  precache-entries bij activatie net heeft opgeruimd; de eerstvolgende lazy
+  geladen chunk vraagt dan een URL op die de deploy van de server verwijderd
+  heeft. Een herlading is van die twee de zachtste afloop.
+- **De precache van de vorige build verdwijnt bij activatie.** Dat doet
+  `PrecacheController.activate()`, dat elke entry weggooit die niet in het
+  nieuwe manifest staat — níet `cleanupOutdatedCaches()`, dat alleen caches met
+  een afwijkende *naam* opruimt en tussen twee builds van dezelfde
+  Workbox-versie dus niets doet. Die laatste staat er voor het geval de
+  cachenaam ooit wel verandert.
 - **`sw.js` mag niet lang gecachet worden.** Cloudflare serveert
   `.output/public` met lange caching voor gehashte bestanden; `sw.js` is niet
   gehasht. Zonder korte cache-header duurt het uren voor een nieuwe worker
