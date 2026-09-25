@@ -14,6 +14,11 @@ const icons = [
 test('elk icoon wordt geserveerd als afbeelding', async ({ request }) => {
   for (const pad of icons) {
     const antwoord = await request.get(pad)
+    // Op zichzelf bewijst deze status-check hier weinig: elk pad buiten
+    // supabaseExclude redirect naar /login, en Playwright volgt die redirect
+    // en houdt over: status 200. Een ontbrekend icoon 404't dus niet, het
+    // landt op de inlogpagina. De content-type-check hieronder doet het
+    // echte werk — die faalt wél, want /login is text/html, geen image/*.
     expect(antwoord.status(), `status voor ${pad}`).toBe(200)
     expect(antwoord.headers()['content-type'], `content-type voor ${pad}`).toContain('image/')
   }
