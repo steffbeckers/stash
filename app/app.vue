@@ -4,7 +4,7 @@
 // uit te loggen — de e2e-tests bereikten ze rechtstreeks met page.goto(). Dit
 // is de root-layout (elke route gaat hier doorheen), dus de navigatie hoort
 // hier thuis en wordt met v-if="user" verborgen op publieke pagina's.
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const localePath = useLocalePath()
 const user = useSupabaseUser()
 const supabase = useSupabaseClient()
@@ -18,6 +18,13 @@ async function signOut() {
   await supabase.auth.signOut()
   await navigateTo(localePath('index'))
 }
+
+// Eén <link rel="manifest">, maar wel naar het manifest van de taal die je nu
+// ziet. Installeer je vanuit het Nederlands, dan opent het icoon straks
+// /nl/voorraad en niet de Engelse pagina.
+useHead({
+  link: [{ rel: 'manifest', href: () => `/manifest/${locale.value}` }],
+})
 </script>
 
 <template>
