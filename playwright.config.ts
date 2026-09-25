@@ -1,23 +1,15 @@
 import { defineConfig } from '@playwright/test'
+import { loadEnv } from './load-env'
 
-// Zelfde reden als in test/db/helpers.ts: de testrunner laadt .env niet
-// vanzelf. Een ontbrekend bestand negeren we; de tests falen dan alsnog
-// met een duidelijke melding over de ontbrekende variabele.
-try {
-  process.loadEnvFile()
-} catch (cause) {
-  // ENOENT betekent: er is geen .env. Dat is normaal in CI, waar de
-  // variabelen rechtstreeks in de omgeving staan. Elke andere fout betekent
-  // dat er wél een bestand is maar dat het niet te lezen valt — dat stil
-  // inslikken kost later uren zoeken naar een variabele die er wel lijkt te
-  // staan.
-  if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') {
-    throw new Error('.env bestaat maar is niet te lezen', { cause })
-  }
-}
+loadEnv()
 
 export default defineConfig({
   testDir: './e2e',
+  // De PWA-specs hebben een gebouwde app nodig en draaien via
+  // playwright.pwa.config.ts op poort 3001. Zonder deze uitsluiting zou
+  // `npm run test:e2e` ze tegen de dev-server draaien, waar de precache leeg
+  // is — en dan staan ze groen zonder iets te bewijzen.
+  testIgnore: '**/pwa/**',
   use: { baseURL: 'http://localhost:3000' },
   webServer: {
     command: 'npm run dev',

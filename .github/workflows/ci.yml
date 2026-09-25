@@ -100,6 +100,12 @@ jobs:
       - name: End-to-endtests
         run: npm run test:e2e
 
+      # Deze draaien tegen een gebouwde app op poort 3001. De build erbij
+      # kost tijd, maar in dev is de precache leeg en bewijst een offline-test
+      # niets over wat de gebruiker krijgt.
+      - name: PWA-tests tegen de gebouwde app
+        run: npm run test:e2e:pwa
+
       - name: Rapport bewaren bij een mislukking
         if: failure()
         uses: actions/upload-artifact@v7
