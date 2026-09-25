@@ -54,7 +54,7 @@ cachen op een vorm die nog gaat veranderen is werk dat je twee keer doet.
 | Strategie | `injectManifest`, met een eigen `app/sw.ts` | Navigatielogica die je kan lezen, becommentariëren en testen. `generateSW` verstopt ze in configuratie |
 | Navigatie | Netwerk-eerst, antwoord nooit cachen | Pagina's verschillen per gebruiker én per taal. Gecachte HTML is hier geen optimalisatie maar een lek |
 | Offline-vangnet | Een geprerenderde pagina per taal | Statisch bestand, geen auth, geen data. Het enige wat offline met zekerheid te tonen valt |
-| Manifest | Drie, één per taal, met dezelfde `id` | `start_url` is het enige veld dat er echt toe doet en het enige dat per taal verschilt |
+| Manifest | Drie, één per taal, met dezelfde `id` | `start_url` moet naar de voorraad in de juiste taal wijzen, en fout is hier geen schoonheidsfout maar een 404 |
 | Updates | `registerType: 'prompt'` | Zichtbaar, en het herlaadt niet onder een half ingevuld formulier vandaan |
 | Installatieknop | Geen | `beforeinstallprompt` bestaat niet op iOS. Een knop die op de helft van de toestellen niets doet is slechter dan geen knop |
 | Icoon | Eén bron-SVG, de rest afgeleid | Later vervangen is één bestand omwisselen, geen negen PNG's opnieuw exporteren |
@@ -164,11 +164,14 @@ route-middleware van Nuxt; hij hoeft niet in `supabaseExclude`.
 
 ### `start_url` en de taalprefix bij uitloggen
 
-Hier raakt dit werk een openstaande bevinding. Met `start_url: '/nl/voorraad'`
-komt iemand die uitgelogd op het icoon tikt bij de voorraad, die auth vereist,
-en de guard van `@nuxtjs/supabase` stuurt hem naar het kale `/login` — zonder
-taalprefix. Dat staat in `open-bevindingen.md` als het vierde en enige nog
-openstaande geval van taalverlies.
+Hier raakte dit werk een bevinding die bij het schrijven van deze spec nog
+openstond: het vierde en laatste geval van taalverlies in dit project. Met
+`start_url: '/nl/voorraad'` komt iemand die uitgelogd op het icoon tikt bij de
+voorraad, die auth vereist, en de guard van `@nuxtjs/supabase` stuurt hem naar
+het kale `/login` — zonder taalprefix.
+
+Dat is inmiddels opgelost en uit `open-bevindingen.md` verwijderd; wat hier
+volgt beschrijft dus wat er gebeurd is, niet wat er nog moet gebeuren.
 
 Tot nu toe was dat een schoonheidsfout op een pad dat je zelden raakt. Met een
 geïnstalleerde app wordt het het eerste scherm dat een nieuwe gebruiker ziet,
