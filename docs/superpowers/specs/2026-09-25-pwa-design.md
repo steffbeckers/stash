@@ -228,8 +228,20 @@ divergentie dat dit project al vaker is tegengekomen.
 Drie dingen daartegen:
 
 - **`registerType: 'prompt'`** — een melding "nieuwe versie beschikbaar" die
-  de gebruiker bevestigt. Zichtbaar, en het herlaadt niets onder iemands
-  handen vandaan.
+  de gebruiker bevestigt. Zichtbaar, en er gebeurt geen update waar niemand om
+  gevraagd heeft.
+
+  Dat isoleert geen tabbladen, en die nuance hoort hier te staan omdat ze bij
+  het bouwen pas bleek. `skipWaiting()` promoveert de wachtende worker voor de
+  hele registratie; er bestaat geen variant die alleen de afzender raakt. Klik
+  je in het ene tabblad op Herladen, dan herlaadt elk ander tabblad dat de
+  melding toont mee.
+
+  Dat is bewust aanvaard, want het alternatief is slechter. Een tabblad dat
+  blijft staan draait oude code terwijl `cleanupOutdatedCaches()` bij activatie
+  de bijbehorende precache net heeft gewist; de eerstvolgende lazy geladen
+  chunk vraagt dan een URL op die de deploy van de server verwijderd heeft. Een
+  herlading is van die twee de zachtste afloop.
 - **`cleanupOutdatedCaches()`** — oude builds blijven niet liggen.
 - **`sw.js` mag niet lang gecachet worden.** Cloudflare serveert
   `.output/public` met lange caching voor gehashte bestanden; `sw.js` is niet
