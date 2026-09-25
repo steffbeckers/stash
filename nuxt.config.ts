@@ -53,15 +53,26 @@ export default defineNuxtConfig({
     injectManifest: {
       globPatterns: [
         '**/*.{js,css,html,svg,png,ico,woff2}',
-        // Los van de lijst hierboven, en bewust geen 'json' daaraan
-        // toevoegen: dat zou ook elke route zijn eigen _payload.json
-        // meenemen, en die verschilt straks per huishouden. De
-        // i18n-berichtenbestanden zijn het tegenovergestelde: identiek voor
-        // iedere gebruiker in dezelfde taal, dus veilig om te precachen.
-        // Zonder dit patroon haalt de offline-pagina haar vertalingen na het
-        // laden opnieuw op via _i18n/<hash>/<taal>/messages.json, en mislukt
-        // dat offline — met rauwe sleutels ("offline.title") als zichtbaar
-        // gevolg in plaats van de al juiste, server-gerenderde tekst.
+        // Bewust geen 'json' aan het patroon hierboven toevoegen — maar dat
+        // houdt _payload.json niet buiten de precache. @vite-pwa/nuxt duwt
+        // '**/_payload.json' zelf in globPatterns zodra
+        // experimental.payloadExtraction aanstaat én er geprerenderde routes
+        // zijn (node_modules/@vite-pwa/nuxt/dist/shared/nuxt.9518178d.mjs,
+        // rond regel 48-52) — en dat geldt hier voor allebei: Nuxt zet
+        // payloadExtraction standaard aan, en nitro.prerender.routes
+        // hieronder is niet leeg. De payloads van de drie offline-pagina's
+        // zitten dus al in de precache, met of zonder deze regel hier.
+        // Onschuldig zolang alleen die drie routes geprerenderd worden — zie
+        // de invariant bij nitro.prerender.routes hieronder, want dát is de
+        // regel die dat moet blijven waarborgen.
+        //
+        // De i18n-berichtenbestanden hebben dat lekrisico niet: identiek
+        // voor iedere gebruiker in dezelfde taal, dus sowieso veilig om te
+        // precachen. Zonder dit patroon haalt de offline-pagina haar
+        // vertalingen na het laden opnieuw op via
+        // _i18n/<hash>/<taal>/messages.json, en mislukt dat offline — met
+        // rauwe sleutels ("offline.title") als zichtbaar gevolg in plaats
+        // van de al juiste, server-gerenderde tekst.
         '_i18n/**/*.json',
       ],
     },
@@ -84,6 +95,15 @@ export default defineNuxtConfig({
       // precachen en Cloudflare ze rechtstreeks serveert. Ze staan in
       // publicRoutes, anders stuurt de auth-guard ze tijdens het prerenderen
       // naar de inlogpagina.
+      //
+      // Invariant, hier en niet elders, want dit is de regel die iemand
+      // straks bewerkt: alleen routes waarvan de HTML én de _payload.json
+      // voor iedere gebruiker identiek zijn, horen hier. @vite-pwa/nuxt neemt
+      // de _payload.json van elke geprerenderde route automatisch mee in de
+      // precache (zie de toelichting bij injectManifest.globPatterns
+      // hierboven) — dus een route met per-gebruiker inhoud die hier
+      // bijkomt, lekt stilzwijgend mee de precache in, zonder dat er een
+      // test voor rood gaat.
       routes: localeCodes.map((code) => routePath('offline', code)),
     },
   },
