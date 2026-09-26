@@ -60,6 +60,15 @@ test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, bro
   await guest.getByRole('button', { name: en.profile.save }).click()
   await expect(guest.getByText(en.invite.nameTitle)).toHaveCount(0)
 
+  // Zonder deze terugmelding bewijst de assertie hierboven niets: in
+  // bewaarNaam() (app/pages/invite/[token].vue) staat naamKlaar.value = true
+  // los van wat save() daadwerkelijk doet — verwijder die aanroep zelf en de
+  // kaart verdwijnt nog steeds. Pas het teruglezen van de naam uit de
+  // ledenlijst bewijst dat de schrijfactie ook echt heeft plaatsgevonden, op
+  // dezelfde manier als onboarding.spec.ts dat voor de onboardingkant bewijst.
+  await guest.goto(routePath('settings/household', 'en'))
+  await expect(guest.getByText('Genodigde')).toBeVisible()
+
   await guestContext.close()
 })
 

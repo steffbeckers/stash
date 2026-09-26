@@ -30,6 +30,14 @@ describe('initials', () => {
     expect(initials('éva')).toBe('É')
   })
 
+  // De reden voor `[...woord][0]` in plaats van `woord[0]`: dit teken bestaat
+  // in UTF-16 uit een surrogaatpaar (twee code-eenheden). `woord[0]` zou alleen
+  // de eerste code-eenheid pakken — een onbruikbaar half teken — terwijl
+  // `[...woord]` per volledig code point itereert.
+  it('houdt een teken buiten het basisvlak heel', () => {
+    expect(initials('😀blij')).toBe('😀')
+  })
+
   // Deze drie zijn de reden dat de functie `string | null` teruggeeft en niet
   // gewoon een string: alledrie komen ze in de praktijk voor. display_name is
   // null voor iedereen die nog nooit een naam heeft ingevuld.

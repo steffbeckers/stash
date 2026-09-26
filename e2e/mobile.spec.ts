@@ -38,15 +38,26 @@ async function verwachtGeenOverflow(page: Page, pad: string): Promise<void> {
   // voor headeralleen-pagina's.
   await waitForHydration(page, 'header button')
 
+  // Een pagina kan ook pas ná hydratie doorsturen — app/pages/inventory.vue
+  // doet dat al in zijn eigen onMounted zodra er geen huishouden is. Zonder
+  // deze herhaalde controle zou zo'n pagina hierboven op haar oorspronkelijke
+  // URL goedgekeurd worden en hieronder alsnog op het doel van de redirect
+  // gemeten worden.
+  await expect(page, `${pad} stuurde ná hydratie alsnog door naar ${page.url()}`).toHaveURL(pad)
+
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
   }))
 
-  expect(scrollWidth, `${pad} loopt ${scrollWidth - clientWidth}px over`).toBeLessThanOrEqual(clientWidth)
+  // Soft: dit is één meting van eenentwintig in dezelfde test. Een hard
+  // expect() zou bij de eerste overschrijding stoppen en de andere twintig
+  // routes ongemeten laten; soft laat de test doorlopen en rapporteert aan
+  // het eind elke route die overschrijdt, niet alleen de eerste.
+  expect.soft(scrollWidth, `${pad} loopt ${scrollWidth - clientWidth}px over`).toBeLessThanOrEqual(clientWidth)
 }
 
-test('geen afgeschermde pagina loopt horizontaal over op 360px', async ({ page }) => {
+test('geen pagina loopt horizontaal over op 360px', async ({ page }) => {
   await signIn(page, `mobiel-${Date.now()}@example.com`)
   await createHousehold(page, { voornaam: 'Mo', huishouden: 'Mobielhuis' })
 
