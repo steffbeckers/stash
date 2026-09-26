@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signIn, readLatestMagicLink, waitForHydration, bundles, type Locale, routePath } from './helpers'
+import { signIn, readLatestMagicLink, waitForHydration, bundles, type Locale, routePath, createHousehold } from './helpers'
 
 // Zelfde hydratieprobleem als bij de submit-knoppen in onboarding.spec.ts,
 // maar de "Create invitation link"-knop hangt aan @click buiten een form, dus
@@ -15,11 +15,7 @@ async function waitForButtonHydration(page: import('@playwright/test').Page) {
 test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, browser }) => {
   // Eigenaar maakt een huishouden en een uitnodigingslink.
   await signIn(page, `e2e-owner-${Date.now()}@example.com`)
-  await page.goto(routePath('onboarding', 'en'))
-  await waitForHydration(page)
-  await page.getByLabel('Household name').fill('Uitnodigingshuis')
-  await page.getByRole('button', { name: 'Start' }).click()
-  await expect(page.getByText('Uitnodigingshuis')).toBeVisible()
+  await createHousehold(page, { voornaam: 'Iris', huishouden: 'Uitnodigingshuis' })
 
   await page.goto(routePath('settings/household', 'en'))
   await waitForButtonHydration(page)
@@ -78,17 +74,8 @@ test('een eigenaar die zichzelf verwijdert, ziet meteen zijn andere huishouden',
 
   // Eerst Huis2, dan Huis1: create() zet het nieuw aangemaakte huishouden
   // actief (useHousehold.ts), dus na deze twee stappen is Huis1 actief.
-  await page.goto(routePath('onboarding', 'en'))
-  await waitForHydration(page)
-  await page.getByLabel('Household name').fill('Huis2')
-  await page.getByRole('button', { name: 'Start' }).click()
-  await expect(page.getByText('Huis2')).toBeVisible()
-
-  await page.goto(routePath('onboarding', 'en'))
-  await waitForHydration(page)
-  await page.getByLabel('Household name').fill('Huis1')
-  await page.getByRole('button', { name: 'Start' }).click()
-  await expect(page.getByText('Huis1')).toBeVisible()
+  await createHousehold(page, { voornaam: 'Els', huishouden: 'Huis2' })
+  await createHousehold(page, { voornaam: 'Tom', huishouden: 'Huis1' })
 
   await page.goto(routePath('settings/household', 'en'))
   await waitForButtonHydration(page)
@@ -214,6 +201,12 @@ test('een uitgenodigde zonder account behoudt zijn taal door de hele inlogflow',
   await signIn(page, `e2e-lang-owner-${Date.now()}@example.com`, locale)
   await page.goto(routePath('onboarding', locale))
   await waitForHydration(page)
+  // Sinds Taak 5 heeft het formulier ook een verplicht voornaamveld; zonder
+  // invulling weigert de browser de submit via de eigen required-validatie
+  // (geen navigatie, geen foutmelding — de test zou stil blijven hangen op
+  // getByText('Taalhuis')). Deze test kan niet naar createHousehold(), die
+  // vast op de Engelse locale staat, dus vult hij het veld hier zelf.
+  await page.getByLabel(fr.onboarding.firstName).fill('Marie')
   await page.getByLabel(fr.onboarding.name).fill('Taalhuis')
   await page.getByRole('button', { name: fr.onboarding.start }).click()
   await expect(page.getByText('Taalhuis')).toBeVisible()

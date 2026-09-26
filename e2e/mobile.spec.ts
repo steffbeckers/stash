@@ -48,7 +48,7 @@ async function verwachtGeenOverflow(page: Page, pad: string): Promise<void> {
 
 test('geen afgeschermde pagina loopt horizontaal over op 360px', async ({ page }) => {
   await signIn(page, `mobiel-${Date.now()}@example.com`)
-  await createHousehold(page, { huishouden: 'Mobielhuis' })
+  await createHousehold(page, { voornaam: 'Mo', huishouden: 'Mobielhuis' })
 
   for (const locale of localeCodes) {
     for (const route of teMeten) {

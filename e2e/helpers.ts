@@ -157,15 +157,16 @@ export async function signIn(
  * Maakt een huishouden aan via het onboardingformulier.
  *
  * Bestaat omdat vijf bestaande testgevallen dit met de hand doen en het
- * formulier in Taak 5 een veld erbij krijgt. Die call sites worden daar
- * omgezet; tot dan staat deze helper er alleen voor mobile.spec.ts.
+ * formulier in Taak 5 een veld erbij krijgt (de voornaam). Die call sites
+ * zijn in Taak 5 allemaal omgezet naar deze helper.
  */
 export async function createHousehold(
   page: import('@playwright/test').Page,
-  opties: { huishouden: string },
+  opties: { voornaam: string; huishouden: string },
 ): Promise<void> {
   await page.goto(routePath('onboarding', 'en'))
   await waitForHydration(page)
+  await page.getByLabel(bundles.en.onboarding.firstName).fill(opties.voornaam)
   await page.getByLabel(bundles.en.onboarding.name).fill(opties.huishouden)
   await page.getByRole('button', { name: bundles.en.onboarding.start }).click()
   await expect(page.getByText(opties.huishouden)).toBeVisible()

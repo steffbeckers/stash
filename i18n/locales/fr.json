@@ -45,6 +45,7 @@
     "title": "Commencer",
     "startTitle": "Créer un ménage",
     "startHelp": "Suivez ce que vous avez chez vous, seul ou avec d'autres.",
+    "firstName": "Votre prénom",
     "name": "Nom du ménage",
     "start": "Créer",
     "joinTitle": "Rejoindre un ménage",
