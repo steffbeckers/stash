@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { routePaths, routePath, localeCodes, defaultLocale, type RouteKey } from '../routes.config'
-import { signIn, createHousehold, bundles } from './helpers'
+import { signIn, createHousehold, bundles, waitForHydration } from './helpers'
 
 // 360×740, niet 375×812. 375 is de gangbare ontwerpmaat, 360 de eerlijke
 // ondergrens van wat er rondloopt. Slaagt 360, dan slaagt 375 mee.
@@ -25,9 +25,18 @@ const teMeten = (Object.keys(routePaths) as RouteKey[]).filter((route) => !(rout
  */
 async function verwachtGeenOverflow(page: Page, pad: string): Promise<void> {
   await page.goto(pad)
-  await expect(page, `${pad} stuurde door naar ${page.url()}`).toHaveURL(
-    new RegExp(`${pad.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/?$`),
-  )
+  // Een kaal string-argument is bij toHaveURL() geen substring- maar een
+  // exacte match, opgelost tegen playwright.config.ts' baseURL — dus geen
+  // handmatige regex-escaping nodig, en geen risico dat een pad dat toevallig
+  // op hetzelfde staartje eindigt (het oude patroon was niet aan het begin
+  // verankerd) hier ten onrechte voor doorgaat.
+  await expect(page, `${pad} stuurde door naar ${page.url()}`).toHaveURL(pad)
+
+  // page.goto() lost al op bij 'load', vóór hydratie. Overflow die pas ná
+  // hydratie verschijnt (bv. door een client-only element) zou hierzonder
+  // ongezien blijven. Dezelfde selector als e2e/locales.spec.ts gebruikt
+  // voor headeralleen-pagina's.
+  await waitForHydration(page, 'header button')
 
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -45,6 +54,13 @@ test('geen afgeschermde pagina loopt horizontaal over op 360px', async ({ page }
     for (const route of teMeten) {
       await verwachtGeenOverflow(page, routePath(route, locale))
     }
+
+    // Bewijst dat deze hele reeks metingen de ingelogde header trof, niet de
+    // smallere uitgelogde variant — anders zou een toekomstige wijziging die
+    // per ongeluk de verkeerde header op een afgeschermde pagina toont hier
+    // groen blijven staan. Eén keer per taal, niet per route: welke header
+    // getoond wordt hangt af van de sessie, niet van de route.
+    await expect(page.getByRole('button', { name: bundles[locale].nav.account })).toBeVisible()
   }
 })
 
