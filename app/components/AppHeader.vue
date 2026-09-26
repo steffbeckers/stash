@@ -5,7 +5,7 @@
 const { t } = useI18n()
 const localePath = useLocalePath()
 const user = useSupabaseUser()
-const { refresh } = useProfile()
+const { profile, refresh } = useProfile()
 
 // Tijdens SSR, niet in onMounted: de avatar toont initialen uit dit profiel
 // en zou anders bij elke volledige paginalading van icoon naar letters
@@ -15,10 +15,25 @@ const { refresh } = useProfile()
 // Dat is de juiste afloop: een header die weigert te renderen omdat een naam
 // niet op te halen was, zou de hele app onbruikbaar maken.
 if (user.value) {
-  try {
-    await refresh()
-  } catch {
-    // Bewust stil: zie hierboven. De avatar heeft een werkende terugval.
+  if (import.meta.server) {
+    try {
+      await refresh()
+    } catch {
+      // Bewust stil: de avatar heeft een werkende terugval op een icoon.
+      // Een header die weigert te renderen omdat een naam niet op te halen
+      // was, zou de hele app onbruikbaar maken.
+    }
+  } else if (!profile.value) {
+    // Niet awaiten. Deze component zit in app.vue, binnen de root-Suspense
+    // die via nuxt-root.vue:33 deferHydration() afdekt: een await hier houdt
+    // nuxtApp.isHydrating open voor de duur van een databasequery, en een
+    // navigateTo() die in dat venster vuurt monteert zijn doelroute nooit.
+    // Dat brak de uitnodigingsflow. Bij een volledige paginalading staat het
+    // profiel al in de SSR-payload (useState() herstelt hem clientzijdig
+    // vóórdat setup() hier draait — vandaar de !profile.value-check); dit
+    // pad is alleen voor een sessie die clientzijdig ontstaat, zoals net na
+    // het inloggen via een magic link.
+    refresh().catch(() => {})
   }
 }
 
