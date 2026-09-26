@@ -81,33 +81,35 @@ const isSelf = (userId: string) => userId === user.value?.sub
     <UAlert v-if="error" color="error" :description="error" />
     <UProgress v-else-if="!ready" animation="carousel" />
     <ul v-else class="divide-y divide-default">
-      <li v-for="member in members" :key="member.userId" class="flex items-center gap-3 py-2">
-        <span class="flex-1">
+      <li v-for="member in members" :key="member.userId" class="flex flex-col gap-2 py-2 sm:flex-row sm:items-center sm:gap-3">
+        <span class="min-w-0 break-words sm:flex-1">
           {{ member.displayName || t('householdSettings.noName') }}
           <span v-if="isSelf(member.userId)" class="text-muted">({{ t('householdSettings.you') }})</span>
         </span>
-        <UBadge :color="member.role === 'owner' ? 'primary' : 'neutral'" variant="subtle">
-          {{ member.role === 'owner' ? t('householdSettings.roleOwner') : t('householdSettings.roleMember') }}
-        </UBadge>
-        <UButton
-          v-if="amOwner && member.role === 'member'"
-          size="xs"
-          variant="ghost"
-          :loading="busy === member.userId"
-          @click="changeRole(member.userId, 'owner')"
-        >
-          {{ t('householdSettings.makeOwner') }}
-        </UButton>
-        <UButton
-          v-if="amOwner"
-          size="xs"
-          color="error"
-          variant="ghost"
-          :loading="busy === member.userId"
-          @click="remove(member.userId)"
-        >
-          {{ t('householdSettings.removeMember') }}
-        </UButton>
+        <div class="flex flex-wrap items-center gap-2">
+          <UBadge :color="member.role === 'owner' ? 'primary' : 'neutral'" variant="subtle">
+            {{ member.role === 'owner' ? t('householdSettings.roleOwner') : t('householdSettings.roleMember') }}
+          </UBadge>
+          <UButton
+            v-if="amOwner && member.role === 'member'"
+            size="xs"
+            variant="ghost"
+            :loading="busy === member.userId"
+            @click="changeRole(member.userId, 'owner')"
+          >
+            {{ t('householdSettings.makeOwner') }}
+          </UButton>
+          <UButton
+            v-if="amOwner"
+            size="xs"
+            color="error"
+            variant="ghost"
+            :loading="busy === member.userId"
+            @click="remove(member.userId)"
+          >
+            {{ t('householdSettings.removeMember') }}
+          </UButton>
+        </div>
       </li>
     </ul>
   </div>

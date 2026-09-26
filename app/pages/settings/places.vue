@@ -106,10 +106,14 @@ onMounted(async () => {
 
     <UAlert v-if="error" class="mt-4" color="error" :description="error" />
 
-    <form class="mt-6 flex gap-2" @submit.prevent="add">
-      <UInput v-model="name" :placeholder="t('places.name')" class="flex-1" />
-      <USelect v-model="kind" :items="kinds" value-key="value" :aria-label="t('places.kind')" />
-      <UButton type="submit">{{ t('places.add') }}</UButton>
+    <!-- Onder `sm` gestapeld. Naast elkaar werd het naamveld in het Frans op
+         360px teruggedrukt tot 49px: alleen het invoerveld had flex-1, dus
+         het leverde als enige in tegenover een keuzelijst van 149px en een
+         knop van 114px. -->
+    <form class="mt-6 flex flex-col gap-2 sm:flex-row" @submit.prevent="add">
+      <UInput v-model="name" :placeholder="t('places.name')" class="w-full sm:flex-1" />
+      <USelect v-model="kind" :items="kinds" value-key="value" :aria-label="t('places.kind')" class="w-full sm:w-auto" />
+      <UButton type="submit" class="justify-center">{{ t('places.add') }}</UButton>
     </form>
   </UContainer>
 </template>

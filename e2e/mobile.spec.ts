@@ -89,3 +89,60 @@ for (const locale of localeCodes) {
     await expect(page.getByRole('button', { name: bundles[locale].nav.account })).toHaveCount(0)
   })
 }
+
+/**
+ * Twee elementen staan niet op dezelfde regel.
+ *
+ * Een breedtegrens ("het veld is minstens N pixels breed") zou een verzonnen
+ * getal zijn. Dit is een directe uitspraak over de fix — onder `sm` stapelt
+ * de rij — en hij wordt rood zodra iemand dat terugdraait.
+ *
+ * Deze test bestaat omdat de veegtest hierboven niet volstaat, en dat is
+ * gemeten en niet beredeneerd: het naamveld van het bewaarplaatsen-formulier
+ * was in het Frans op 360px samengedrukt tot 49px, binnen een formulier van
+ * 328px dat keurig binnen de viewport bleef. Nul page-overflow, onbruikbaar
+ * veld, groene veegtest.
+ */
+async function verwachtGestapeld(
+  boven: import('@playwright/test').Locator,
+  onder: import('@playwright/test').Locator,
+  naam: string,
+): Promise<void> {
+  const a = await boven.boundingBox()
+  const b = await onder.boundingBox()
+  expect(a, `${naam}: het bovenste element is niet zichtbaar`).not.toBeNull()
+  expect(b, `${naam}: het onderste element is niet zichtbaar`).not.toBeNull()
+  expect(b!.y, `${naam} staat nog op dezelfde regel`).toBeGreaterThanOrEqual(a!.y + a!.height)
+}
+
+test('bediening staat gestapeld op 360px in plaats van samengedrukt', async ({ page }) => {
+  await signIn(page, `stapel-${Date.now()}@example.com`)
+  // De voornaam mag geen deelreeks van de huishoudnaam zijn: getByText doet
+  // standaard een deelreeksvergelijking, en 'Stapel' zou dan ook 'Stapelhuis'
+  // matchen — een selector die per ongeluk het verkeerde element pakt.
+  await createHousehold(page, { voornaam: 'Vera', huishouden: 'Stapelhuis' })
+
+  await page.goto(routePath('settings/places', 'en'))
+  await verwachtGestapeld(
+    page.getByPlaceholder(bundles.en.places.name),
+    page.getByRole('button', { name: bundles.en.places.add }),
+    'bewaarplaatsen-formulier',
+  )
+
+  await page.goto(routePath('settings/household', 'en'))
+  await expect(page.getByText('Vera')).toBeVisible()
+  await verwachtGestapeld(
+    page.getByText('Vera'),
+    page.getByRole('button', { name: bundles.en.householdSettings.removeMember }),
+    'ledenrij',
+  )
+
+  await page.getByRole('button', { name: bundles.en.invite.create }).click()
+  const linkveld = page.getByRole('textbox', { name: bundles.en.invite.linkLabel })
+  await expect(linkveld).toBeVisible()
+  await verwachtGestapeld(
+    linkveld,
+    page.getByRole('button', { name: bundles.en.invite.copy }),
+    'uitnodigingskaart',
+  )
+})
