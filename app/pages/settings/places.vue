@@ -87,6 +87,7 @@ onMounted(async () => {
 
 <template>
   <UContainer class="max-w-lg py-12">
+    <SettingsTabs />
     <h1 class="text-2xl font-bold">{{ t('places.title') }}</h1>
 
     <div class="mt-6 space-y-2">

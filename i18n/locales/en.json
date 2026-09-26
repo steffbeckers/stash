@@ -33,6 +33,13 @@
   "appHome": {
     "title": "Your household"
   },
+  "profile": {
+    "title": "Profile",
+    "name": "Name",
+    "nameHelp": "This is the name the others in your household see.",
+    "save": "Save",
+    "saved": "Saved."
+  },
   "onboarding": {
     "title": "Get started",
     "startTitle": "Start a household",

@@ -33,6 +33,13 @@
   "appHome": {
     "title": "Votre ménage"
   },
+  "profile": {
+    "title": "Profil",
+    "name": "Nom",
+    "nameHelp": "C'est le nom que voient les autres membres de votre ménage.",
+    "save": "Enregistrer",
+    "saved": "Enregistré."
+  },
   "onboarding": {
     "title": "Commencer",
     "startTitle": "Créer un ménage",

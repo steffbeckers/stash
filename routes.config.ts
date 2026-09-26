@@ -30,6 +30,11 @@ export type LocaleCode = (typeof localeCodes)[number]
 export const routePaths = {
   'inventory': { en: '/inventory', nl: '/voorraad', fr: '/stock' },
   'onboarding': { en: '/get-started', nl: '/aan-de-slag', fr: '/bienvenue' },
+  'settings/profile': {
+    en: '/settings/profile',
+    nl: '/instellingen/profiel',
+    fr: '/parametres/profil',
+  },
   'settings/household': {
     en: '/settings/household',
     nl: '/instellingen/huishouden',

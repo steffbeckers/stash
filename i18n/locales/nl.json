@@ -33,6 +33,13 @@
   "appHome": {
     "title": "Je huishouden"
   },
+  "profile": {
+    "title": "Profiel",
+    "name": "Naam",
+    "nameHelp": "Dit is de naam die de anderen in je huishouden zien.",
+    "save": "Opslaan",
+    "saved": "Opgeslagen."
+  },
   "onboarding": {
     "title": "Aan de slag",
     "startTitle": "Start een huishouden",
