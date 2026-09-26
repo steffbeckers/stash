@@ -174,8 +174,27 @@ Wie een route uitzondert schrijft in dezelfde regel op waarom.
 | Sleutels in `routePaths` (inclusief de nieuwe `settings/profile`) | 9 |
 | Af: `confirm` — stuurt meteen door, geen stabiele pagina om te meten | −1 |
 | Af: `invite/[token]` — eigen geval, met een echt token | −1 |
-| Bij: de landingspagina | +1 |
-| **Routes × 3 talen** | **24** |
+| **De veegtest, ingelogd: 7 routes × 3 talen** | **21** |
+| De landingspagina, uitgelogd, 3 talen | +3 |
+| **Totaal gemeten** | **24** |
+
+De landingspagina krijgt een eigen geval in plaats van mee te lopen in de
+veegtest, om twee redenen. Ze staat niet in `routePaths` — er is geen
+routenaam voor de wortel, dezelfde constatering die
+`test/routes/offline-path.test.ts` al maakt. En ze is de enige plek waar de
+header van een *uitgelogde* bezoeker te zien is, met de compacte
+taalschakelaar die in dit ontwerp verandert; de veegtest draait ingelogd en
+zou die variant dus nooit meten.
+
+Dat de ingelogde header de zwaarste is, is geen aanname: uitgelogd staat er
+merknaam plus taalschakelaar, ingelogd merknaam plus navigatie plus avatar.
+Toch wordt de lichtere variant apart gemeten, want hij verandert hier.
+
+Bij de landingspagina wordt de taalcookie expliciet gezet. `redirectOn:
+'root'` stuurt juist op `/` door naar de taal uit die cookie, en zonder dat
+expliciet te maken hangt de uitkomst af van de volgorde waarin de talen
+getest worden — een test die afhangt van zijn eigen volgorde meet niet wat
+hij beweert.
 
 **Test 1 alleen is niet genoeg, en dat is gemeten.** Het naamveld van 49px
 staat in een formulier van 328px binnen een viewport van 360px. Dat formulier
