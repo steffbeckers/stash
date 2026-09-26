@@ -20,6 +20,16 @@
     "getStarted": "Get started",
     "goToApp": "Go to your inventory"
   },
+  "offline": {
+    "title": "You are offline",
+    "body": "Stash needs a connection for this page. Nothing is lost — try again once you are back online.",
+    "retry": "Try again"
+  },
+  "pwa": {
+    "updateAvailable": "A new version is available.",
+    "reload": "Reload",
+    "dismiss": "Later"
+  },
   "appHome": {
     "title": "Your household"
   },

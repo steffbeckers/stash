@@ -42,6 +42,7 @@ export const routePaths = {
   },
   'login': { en: '/login', nl: '/inloggen', fr: '/connexion' },
   'confirm': { en: '/confirm', nl: '/bevestigen', fr: '/confirmation' },
+  'offline': { en: '/offline', nl: '/offline', fr: '/hors-ligne' },
   'invite/[token]': {
     en: '/invite/[token]',
     nl: '/uitnodiging/[token]',
@@ -55,7 +56,7 @@ export const routePaths = {
 export type RouteKey = keyof typeof routePaths
 
 /** Routes die zonder inloggen bereikbaar moeten zijn. De rest is afgeschermd. */
-export const publicRoutes = ['login', 'confirm', 'invite/[token]'] as const
+export const publicRoutes = ['login', 'confirm', 'invite/[token]', 'offline'] as const
 
 /** Het URL-pad van een route in één taal, zoals de browser het ziet. */
 export function routePath(
@@ -74,6 +75,37 @@ export function routePath(
 /** Dezelfde route, maar met `*` waar een parameter staat: @nuxtjs/supabase matcht met globs. */
 export function routeGlob(route: RouteKey, locale: LocaleCode): string {
   return routePath(route, locale).replace(/\[\w+\]/g, '*')
+}
+
+/**
+ * Het pad van het per-taal manifest, geserveerd door
+ * `server/routes/manifest/[locale].get.ts`.
+ *
+ * Dit is geen route uit `routePaths`: het is een server-route, niet een Nuxt-
+ * pagina, en gaat dus niet door de i18n- of auth-middleware. Stond hier tot
+ * voor kort vijf keer met de hand uitgeschreven — één keer in `app/app.vue`
+ * en vier keer in `e2e/pwa/manifest.spec.ts` — dezelfde valkuil als de routes
+ * hierboven, alleen nog niet achter deze functie vandaan.
+ */
+export function manifestPath(locale: LocaleCode): string {
+  return `/manifest/${locale}`
+}
+
+/**
+ * Welke offline-pagina hoort bij een pad?
+ *
+ * De service worker gebruikt dit als het netwerk wegvalt. Hij draait buiten
+ * Vue en heeft dus geen useI18n(); de taal moet uit het pad komen. Dat kan,
+ * want `prefix_except_default` zet de taal vooraan.
+ *
+ * De standaardtaal heeft geen prefix en is daarom de uitkomst zodra er geen
+ * bekende prefix staat — ook voor een pad dat met /en begint, want die route
+ * bestaat niet.
+ */
+export function offlinePathFor(pathname: string): string {
+  const eerste = pathname.split('/')[1]
+  const locale = localeCodes.find((code) => code !== defaultLocale && code === eerste)
+  return routePath('offline', locale ?? defaultLocale)
 }
 
 /** De exclude-lijst wordt afgeleid, niet met de hand bijgehouden. */

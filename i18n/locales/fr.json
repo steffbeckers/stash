@@ -20,6 +20,16 @@
     "getStarted": "Commencer",
     "goToApp": "Voir votre inventaire"
   },
+  "offline": {
+    "title": "Vous êtes hors ligne",
+    "body": "Stash a besoin d'une connexion pour cette page. Rien n'est perdu — réessayez dès que vous êtes de nouveau en ligne.",
+    "retry": "Réessayer"
+  },
+  "pwa": {
+    "updateAvailable": "Une nouvelle version est disponible.",
+    "reload": "Recharger",
+    "dismiss": "Plus tard"
+  },
   "appHome": {
     "title": "Votre ménage"
   },

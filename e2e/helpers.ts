@@ -95,6 +95,21 @@ export async function readLatestMagicLink(email: string): Promise<string> {
 // Verdwijnt de eigenschap bij een Vue-majorupgrade, dan valt deze functie om
 // in een timeout. De melding hieronder zorgt dat de volgende lezer niet gaat
 // zoeken in de applicatie maar hier uitkomt.
+//
+// Een tweede, ander gat: deze functie werkt niet tegen een gebouwde app.
+// Beide toekenningen van __vueParentComponent
+// (node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js) zitten
+// achter `process.env.NODE_ENV !== 'production' || __VUE_PROD_DEVTOOLS__`,
+// en in de gecompileerde productiebuild (runtime-core.cjs.prod.js) komt de
+// eigenschap nul keer voor — zelf gegrepped, niet aangenomen. Deze functie
+// heeft tot nu toe alleen tegen `nuxt dev` gedraaid (via login.spec.ts,
+// locales.spec.ts, onboarding.spec.ts, invite.spec.ts), waar die voorwaarde
+// altijd waar is. Gebruik hem in een e2e/pwa/*-spec — die draait tegen de
+// gebouwde app, zie playwright.pwa.config.ts — en je krijgt een schone
+// timeout van 30s op een app die prima werkt, geen hydratatieprobleem.
+// Playwright's eigen actionability-wachten op .click() is daar het werkende
+// alternatief; zie e2e/pwa/manifest.spec.ts voor een voorbeeld dat deze
+// functie bewust niet gebruikt.
 export async function waitForHydration(
   page: import('@playwright/test').Page,
   selector = 'button[type="submit"]',

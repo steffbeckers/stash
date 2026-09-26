@@ -20,6 +20,16 @@
     "getStarted": "Aan de slag",
     "goToApp": "Naar je voorraad"
   },
+  "offline": {
+    "title": "Je bent offline",
+    "body": "Stash heeft verbinding nodig voor deze pagina. Er gaat niets verloren — probeer opnieuw zodra je weer online bent.",
+    "retry": "Opnieuw proberen"
+  },
+  "pwa": {
+    "updateAvailable": "Er is een nieuwe versie beschikbaar.",
+    "reload": "Herladen",
+    "dismiss": "Later"
+  },
   "appHome": {
     "title": "Je huishouden"
   },

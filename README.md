@@ -64,6 +64,52 @@ Three separate suites, each with different requirements:
 
 `npm run test:all` runs the unit and database suites together.
 
+## Progressive Web App
+
+Stash is installable on desktop, Android and iOS. The home-screen icon opens
+the inventory in whichever language you installed from: there are three
+manifests, one per locale (`en`, `nl`, `fr`), served from a single Nitro
+route at `server/routes/manifest/[locale].get.ts`. A single shared manifest
+couldn't point `start_url` at each locale's own inventory page, and getting
+that wrong wouldn't just show the wrong language — the install icon would
+open a 404.
+
+Icons are generated from a single source file, `public/icon.svg`. After
+changing it, regenerate every size and variant (favicon, apple-touch-icon,
+maskable, and the two manifest PNGs):
+
+```bash
+npm run icons
+```
+
+Don't hand-edit the generated icon files — the next `npm run icons` overwrites
+them. A plain `nuxt build` does not: `pwa-assets.config.ts` is read only by
+the `pwa-assets-generator` CLI, not by the build.
+
+### Testing the PWA
+
+```bash
+npm run test:e2e:pwa
+```
+
+This runs a separate Playwright project (`e2e/pwa/**`) against a **built**
+app served on port 3001, instead of the dev server on port 3000 that
+`npm run test:e2e` uses. That split matters: in dev the service worker's
+precache is empty, so an offline test run there would pass or fail against a
+different service worker than the one a real user installs — it wouldn't
+prove anything about what ships. See §9 of
+`docs/superpowers/specs/2026-09-25-pwa-design.md`, which makes the same call
+for the same reason.
+
+### What works offline
+
+The offline shell works: precached build assets, icons and a localised
+offline page mean the app still opens with no network. Offline **data**
+does not — there's no inventory to cache yet (`stock_item` doesn't exist as
+a table). See §1 of `docs/superpowers/specs/2026-09-25-pwa-design.md` for
+exactly where that promise stands and what has to happen before it can be
+kept.
+
 ## Deploying
 
 ### The live environment
