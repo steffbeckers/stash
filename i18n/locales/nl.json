@@ -6,7 +6,8 @@
   "nav": {
     "inventory": "Voorraad",
     "settings": "Instellingen",
-    "language": "Taal"
+    "language": "Taal",
+    "account": "Account"
   },
   "auth": {
     "signIn": "Inloggen",

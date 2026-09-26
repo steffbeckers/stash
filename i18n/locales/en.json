@@ -6,7 +6,8 @@
   "nav": {
     "inventory": "Inventory",
     "settings": "Settings",
-    "language": "Language"
+    "language": "Language",
+    "account": "Account"
   },
   "auth": {
     "signIn": "Sign in",

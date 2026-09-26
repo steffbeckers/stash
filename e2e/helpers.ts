@@ -152,3 +152,29 @@ export async function signIn(
   // vóór /confirm.
   await page.waitForURL((current) => !current.pathname.includes('/confirm'))
 }
+
+/**
+ * Maakt een huishouden aan via het onboardingformulier.
+ *
+ * Bestaat omdat vijf bestaande testgevallen dit met de hand doen en het
+ * formulier in Taak 5 een veld erbij krijgt. Die call sites worden daar
+ * omgezet; tot dan staat deze helper er alleen voor mobile.spec.ts.
+ */
+export async function createHousehold(
+  page: import('@playwright/test').Page,
+  opties: { huishouden: string },
+): Promise<void> {
+  await page.goto(routePath('onboarding', 'en'))
+  await waitForHydration(page)
+  await page.getByLabel(bundles.en.onboarding.name).fill(opties.huishouden)
+  await page.getByRole('button', { name: bundles.en.onboarding.start }).click()
+  await expect(page.getByText(opties.huishouden)).toBeVisible()
+}
+
+/** Opent het avatarmenu in de header. Instellingen en uitloggen zitten daarin. */
+export async function openUserMenu(
+  page: import('@playwright/test').Page,
+  locale: Locale = 'en',
+): Promise<void> {
+  await page.getByRole('button', { name: bundles[locale].nav.account }).click()
+}

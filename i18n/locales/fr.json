@@ -6,7 +6,8 @@
   "nav": {
     "inventory": "Stock",
     "settings": "Paramètres",
-    "language": "Langue"
+    "language": "Langue",
+    "account": "Compte"
   },
   "auth": {
     "signIn": "Se connecter",

@@ -8,8 +8,6 @@
 const { t, locale, locales } = useI18n()
 const switchLocalePath = useSwitchLocalePath()
 
-const huidige = computed(() => locales.value.find((l) => l.code === locale.value))
-
 // `locale: false` is hier niet optioneel.
 //
 // ULink haalt zijn `to` standaard nog een keer door $localePath, met de
@@ -34,15 +32,18 @@ const items = computed(() => [
 
 <template>
   <UDropdownMenu :items="items" :ui="{ content: 'w-44' }">
+    <!-- De knop toont alleen de taalcode (NL/EN/FR); de volledige namen
+         staan in de dropdown. Het aria-label blijft nav.language, dus de
+         toegankelijke naam van de knop verandert niet — e2e/locales.spec.ts
+         zoekt hem daarop en blijft werken. -->
     <UButton
       :aria-label="t('nav.language')"
       size="sm"
       variant="ghost"
       color="neutral"
       icon="i-lucide-languages"
-      trailing-icon="i-lucide-chevron-down"
     >
-      {{ huidige?.name ?? locale }}
+      {{ locale.toUpperCase() }}
     </UButton>
   </UDropdownMenu>
 </template>

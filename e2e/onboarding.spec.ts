@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signIn, waitForHydration, bundles, routePath } from './helpers'
+import { signIn, waitForHydration, bundles, routePath, openUserMenu } from './helpers'
 
 const en = bundles.en
 
@@ -45,7 +45,14 @@ test('een ingelogde gebruiker bereikt beide instellingenpagina\'s via de navigat
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(page.getByText('Navigatiehuis')).toBeVisible()
 
-  await page.getByRole('link', { name: 'Settings' }).click()
+  // Instellingen zit sinds de header-herindeling in het avatarmenu, niet meer
+  // in de navigatiebalk. Deze test klikt dus eerst het menu open — precies de
+  // weg die een gebruiker ook aflegt.
+  await openUserMenu(page)
+  await page.getByRole('menuitem', { name: en.nav.settings }).click()
+  await expect(page).toHaveURL(new RegExp(routePath('settings/profile', 'en')))
+
+  await page.getByRole('link', { name: en.householdSettings.title }).click()
   await expect(page).toHaveURL(new RegExp(routePath('settings/household', 'en')))
 
   await page.getByRole('link', { name: 'Storage places' }).click()
