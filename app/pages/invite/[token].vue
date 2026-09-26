@@ -23,9 +23,11 @@ async function bewaarNaam() {
     await save(voornaam.value)
     naamKlaar.value = true
   } catch {
-    // De naam is bijzaak: je bent al lid. Een mislukking hier mag de weg naar
-    // je voorraad niet blokkeren, dus we sluiten het blok gewoon.
-    naamKlaar.value = true
+    // De kaart laten staan blokkeert niets: de knop naar de voorraad staat
+    // buiten de kaart en hangt alleen af van `state !== 'joining'`. Zou dit
+    // blok naamKlaar wél op true zetten, dan verdwijnt de kaart stilzwijgend
+    // — en daarmee de naam die net getypt is, zonder dat er ooit nog om
+    // gevraagd wordt.
   } finally {
     naamOpslaan.value = false
   }
@@ -56,8 +58,12 @@ onMounted(async () => {
     return
   }
 
-  await refresh()
-  await refreshProfiel()
+  // accept_invite() hierboven is al geslaagd: de gebruiker is al lid. Gooit
+  // een van deze twee verversingen alsnog, dan mag dat succes niet verborgen
+  // blijven achter een oneindige joining-spinner — vandaar de vangst op
+  // allebei, niet alleen op de onderste.
+  await refresh().catch(() => {})
+  await refreshProfiel().catch(() => {})
   setActive(data as string)
 
   const { data: hh } = await supabase
