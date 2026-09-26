@@ -55,6 +55,8 @@
     "joining": "Bezig met lid worden…",
     "success": "Je bent lid geworden van {name}.",
     "failed": "Deze uitnodiging is niet meer geldig.",
+    "nameTitle": "Hoe mogen we je noemen?",
+    "nameHelp": "De anderen in je huishouden zien deze naam.",
     "create": "Uitnodigingslink maken",
     "linkLabel": "Uitnodigingslink",
     "copy": "Link kopiëren",

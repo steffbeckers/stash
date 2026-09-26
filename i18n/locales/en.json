@@ -55,6 +55,8 @@
     "joining": "Joining household…",
     "success": "You have joined {name}.",
     "failed": "This invitation is no longer valid.",
+    "nameTitle": "What should we call you?",
+    "nameHelp": "The others in your household will see this name.",
     "create": "Create invitation link",
     "linkLabel": "Invitation link",
     "copy": "Copy link",

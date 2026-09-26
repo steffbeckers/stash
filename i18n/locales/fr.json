@@ -55,6 +55,8 @@
     "joining": "Adhésion en cours…",
     "success": "Vous avez rejoint {name}.",
     "failed": "Cette invitation n'est plus valable.",
+    "nameTitle": "Comment devons-nous vous appeler ?",
+    "nameHelp": "Les autres membres de votre ménage verront ce nom.",
     "create": "Créer un lien d'invitation",
     "linkLabel": "Lien d'invitation",
     "copy": "Copier le lien",

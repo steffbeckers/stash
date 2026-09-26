@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test'
 import { signIn, readLatestMagicLink, waitForHydration, bundles, type Locale, routePath, createHousehold } from './helpers'
 
+// De standaardlocale waarin de meeste tests in dit bestand draaien (behalve
+// de taaltest onderaan, die zijn eigen `fr` gebruikt).
+const en = bundles.en
+
 // Zelfde hydratieprobleem als bij de submit-knoppen in onboarding.spec.ts,
 // maar de "Create invitation link"-knop hangt aan @click buiten een form, dus
 // heeft geen type="submit". Kijkt daarom naar een willekeurige knop op de
@@ -49,7 +53,41 @@ test('een uitgenodigde zonder account wordt na inloggen lid', async ({ page, bro
   await guest.goto(magicLink)
 
   await expect(guest.getByText('Uitnodigingshuis')).toBeVisible()
+
+  // Een genodigde ziet onboarding nooit en zou dus voorgoed naamloos blijven.
+  await expect(guest.getByText(en.invite.nameTitle)).toBeVisible()
+  await guest.getByLabel(en.profile.name).fill('Genodigde')
+  await guest.getByRole('button', { name: en.profile.save }).click()
+  await expect(guest.getByText(en.invite.nameTitle)).toHaveCount(0)
+
   await guestContext.close()
+})
+
+// De andere helft van het geval hierboven. Zonder deze test zou "toon het
+// veld altijd" net zo groen zijn, en zou een terugkerende gebruiker elke
+// uitnodiging opnieuw om zijn naam gevraagd worden.
+test('een genodigde die al een naam heeft, wordt er niet opnieuw om gevraagd', async ({ page, browser }) => {
+  const ownerEmail = `eigenaar-naam-${Date.now()}@example.com`
+  await signIn(page, ownerEmail)
+  await createHousehold(page, { voornaam: 'Eigenaar', huishouden: 'Naamhuis' })
+
+  await page.goto(routePath('settings/household', 'en'))
+  await waitForButtonHydration(page)
+  await page.getByRole('button', { name: en.invite.create }).click()
+  const link = await page.getByRole('textbox', { name: en.invite.linkLabel }).inputValue()
+
+  // Deze genodigde heeft al een huishouden én een naam uit zijn eigen
+  // onboarding, en accepteert daarna pas de uitnodiging.
+  const context = await browser.newContext()
+  const guest = await context.newPage()
+  await signIn(guest, `genodigde-naam-${Date.now()}@example.com`)
+  await createHousehold(guest, { voornaam: 'Bekend', huishouden: 'Eigenhuis' })
+
+  await guest.goto(link)
+  await expect(guest.getByText('Naamhuis')).toBeVisible()
+  await expect(guest.getByText(en.invite.nameTitle)).toHaveCount(0)
+
+  await context.close()
 })
 
 // Bevinding uit de review van task 3: removeMember() ververste na een
