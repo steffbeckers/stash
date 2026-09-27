@@ -1,6 +1,11 @@
 export interface Profile {
   userId: string
   displayName: string | null
+  // Toegekend, niet verdiend: `role` bepaalt of je aan andermans gegevens
+  // mag komen. Dat staat los van `trust_level`, dat verdiend wordt en
+  // bepaalt met welke status je eigen bijdragen starten. Zie §2 van
+  // docs/superpowers/specs/2026-09-27-catalogus-producten-design.md.
+  role: string
 }
 
 /**
@@ -28,12 +33,12 @@ export function useProfile() {
     // useSupabaseUser() geeft het JWT-payload: het id staat op `sub`.
     const { data, error } = await supabase
       .from('user_profile')
-      .select('user_id, display_name')
+      .select('user_id, display_name, role')
       .eq('user_id', user.value.sub)
       .single()
 
     if (error) throw error
-    profile.value = { userId: data.user_id, displayName: data.display_name }
+    profile.value = { userId: data.user_id, displayName: data.display_name, role: data.role }
   }
 
   async function save(displayName: string): Promise<void> {
