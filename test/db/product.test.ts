@@ -280,6 +280,53 @@ describe('product-RPCs', () => {
     })
   })
 
+  // set_product_translation roept mag_product_bewerken aan net als
+  // update_product, maar had tot nu toe geen enkele test die dat bewees: de
+  // hele suite bleef groen als je de check eruit haalde. Zelfde paar-vorm als
+  // bij update_product hierboven.
+  it('laat een vreemde de naam van andermans product niet wijzigen', async () => {
+    const mijn = await createUser('naam-mijn@example.com')
+    const vreemde = await createUser('naam-vreemde@example.com')
+    let id = ''
+    await withTx(async (tx) => {
+      await actAs(tx, mijn)
+      await enableRls(tx)
+      id = await maakProduct(tx)
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, vreemde)
+      await enableRls(tx)
+      await expect(
+        tx.savepoint((sp) => sp`select set_product_translation(${id}::uuid, 'en', 'Hijacked')`),
+      ).rejects.toThrow(/alleen de maker of een moderator/)
+    })
+  })
+
+  // De andere helft. Zonder dit geval zou een implementatie die iedereen
+  // weigert — moderators incluis — er groen uitzien.
+  it('laat een moderator de naam van andermans product wel wijzigen', async () => {
+    const mijn = await createUser('naam-mijn-2@example.com')
+    const mod = await createUser('naam-mod@example.com')
+    await withDb(async (sql) => {
+      await sql`update user_profile set role = 'moderator' where user_id = ${mod}`
+    })
+    let id = ''
+    await withTx(async (tx) => {
+      await actAs(tx, mijn)
+      await enableRls(tx)
+      id = await maakProduct(tx)
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, mod)
+      await enableRls(tx)
+      await tx`select set_product_translation(${id}::uuid, 'en', 'Corrected')`
+      const [r] = await tx<{ name: string }[]>`
+        select name from product_translation where product_id = ${id} and locale = 'en'
+      `
+      expect(r!.name).toBe('Corrected')
+    })
+  })
+
   it('weigert het verwijderen van de laatste naam via de RPC', async () => {
     const userId = await createUser('laatste@example.com')
     await withTx(async (tx) => {
@@ -291,6 +338,44 @@ describe('product-RPCs', () => {
       await expect(
         tx.savepoint((sp) => sp`select remove_product_translation(${id}::uuid, 'nl')`),
       ).rejects.toThrow(/minstens één naam/)
+    })
+  })
+
+  // remove_product_translation heeft vandaag alleen zijn faalpad getoetst
+  // (de laatste naam). Dit is het geslaagde pad: één van twee weghalen.
+  it('verwijdert een naam als er een andere overblijft', async () => {
+    const userId = await createUser('naam-weg@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const id = await maakProduct(tx)
+      await tx`select set_product_translation(${id}::uuid, 'en', 'Milk')`
+      await tx`select remove_product_translation(${id}::uuid, 'en')`
+      const rijen = await tx<{ locale: string }[]>`
+        select locale from product_translation where product_id = ${id}
+      `
+      expect(rijen.map((r) => r.locale)).toEqual(['nl'])
+    })
+  })
+
+  it('laat een moderator de status van een product wijzigen', async () => {
+    const maker = await createUser('status-maker@example.com')
+    const mod = await createUser('status-mod@example.com')
+    await withDb(async (sql) => {
+      await sql`update user_profile set role = 'moderator' where user_id = ${mod}`
+    })
+    let id = ''
+    await withTx(async (tx) => {
+      await actAs(tx, maker)
+      await enableRls(tx)
+      id = await maakProduct(tx)
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, mod)
+      await enableRls(tx)
+      await tx`select set_product_status(${id}::uuid, 'rejected')`
+      const [p] = await tx<{ status: string }[]>`select status from product where id = ${id}`
+      expect(p!.status).toBe('rejected')
     })
   })
 
