@@ -168,6 +168,11 @@ isOneToOne: false
 "remove_product_translation":
 { Args: { "locale": string,"target_product": string }; Returns: undefined
                            },
+"search_products":
+{ Args: { "maximum"?: number,"voorkeurstaal"?: string,"zoekterm": string }; Returns: {
+              "getoonde_taal": string,"gtin": string,"merk": string,"naam": string,"net_content": number,"product_id": string,"score": number,"status": string,"unit": string
+            }[]
+                           },
 "set_member_role":
 { Args: { "new_role": string,"target_household": string,"target_user": string }; Returns: undefined
                            },
