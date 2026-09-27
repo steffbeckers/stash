@@ -358,6 +358,54 @@ describe('product-RPCs', () => {
     })
   })
 
+  // De vorige test riep remove_product_translation aan als de maker zelf, die
+  // mag_product_bewerken's eigenaarstak doorstaat ongeacht of de check
+  // bestaat. Dit paar toetst de check zelf, los van eigenaarschap.
+  it('laat een vreemde geen naam van andermans product verwijderen', async () => {
+    const mijn = await createUser('weg-mijn@example.com')
+    const vreemde = await createUser('weg-vreemde@example.com')
+    let id = ''
+    await withTx(async (tx) => {
+      await actAs(tx, mijn)
+      await enableRls(tx)
+      id = await maakProduct(tx)
+      await tx`select set_product_translation(${id}::uuid, 'en', 'Milk')`
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, vreemde)
+      await enableRls(tx)
+      await expect(
+        tx.savepoint((sp) => sp`select remove_product_translation(${id}::uuid, 'en')`),
+      ).rejects.toThrow(/alleen de maker of een moderator/)
+    })
+  })
+
+  // De andere helft. Zonder dit geval zou een implementatie die iedereen
+  // weigert — moderators incluis — er groen uitzien.
+  it('laat een moderator wel een naam van andermans product verwijderen', async () => {
+    const mijn = await createUser('weg-mijn-2@example.com')
+    const mod = await createUser('weg-mod@example.com')
+    await withDb(async (sql) => {
+      await sql`update user_profile set role = 'moderator' where user_id = ${mod}`
+    })
+    let id = ''
+    await withTx(async (tx) => {
+      await actAs(tx, mijn)
+      await enableRls(tx)
+      id = await maakProduct(tx)
+      await tx`select set_product_translation(${id}::uuid, 'en', 'Milk')`
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, mod)
+      await enableRls(tx)
+      await tx`select remove_product_translation(${id}::uuid, 'en')`
+      const rijen = await tx<{ locale: string }[]>`
+        select locale from product_translation where product_id = ${id}
+      `
+      expect(rijen.map((r) => r.locale)).toEqual(['nl'])
+    })
+  })
+
   it('laat een moderator de status van een product wijzigen', async () => {
     const maker = await createUser('status-maker@example.com')
     const mod = await createUser('status-mod@example.com')
