@@ -32,6 +32,31 @@ describe('user_profile', () => {
     })
   })
 
+  // De ledenlijst rendert display_name ongefilterd. Zonder bovengrens kan
+  // één gebruiker de layout van iedereen in zijn huishouden breken — en dat
+  // is precies de belofte die e2e/mobile.spec.ts hard maakt.
+  it('weigert een weergavenaam van meer dan 60 tekens', async () => {
+    const userId = await createUser('te-lang@example.com')
+    await withDb(async (sql) => {
+      await expect(
+        sql`update user_profile set display_name = ${'a'.repeat(61)} where user_id = ${userId}`,
+      ).rejects.toThrow(/display_name_length/)
+    })
+  })
+
+  // De falsificatie van de test hierboven: zonder dit geval zou een
+  // constraint van `<= 0` ook slagen, en dan was élke naam geweigerd.
+  it('laat een weergavenaam van precies 60 tekens toe', async () => {
+    const userId = await createUser('grens@example.com')
+    await withDb(async (sql) => {
+      await sql`update user_profile set display_name = ${'a'.repeat(60)} where user_id = ${userId}`
+      const [row] = await sql<{ display_name: string | null }[]>`
+        select display_name from user_profile where user_id = ${userId}
+      `
+      expect(row!.display_name).toHaveLength(60)
+    })
+  })
+
   // De twee tests hieronder draaien wel onder RLS. Zonder hen zou deze suite
   // even groen zijn met `enable row level security` volledig weggehaald — en
   // dan bewijst ze niets over de policies die de tabel beschermen.

@@ -6,7 +6,8 @@
   "nav": {
     "inventory": "Stock",
     "settings": "Paramètres",
-    "language": "Langue"
+    "language": "Langue",
+    "account": "Compte"
   },
   "auth": {
     "signIn": "Se connecter",
@@ -33,10 +34,18 @@
   "appHome": {
     "title": "Votre ménage"
   },
+  "profile": {
+    "title": "Profil",
+    "name": "Nom",
+    "nameHelp": "C'est le nom que voient les autres membres de votre ménage.",
+    "save": "Enregistrer",
+    "saved": "Enregistré."
+  },
   "onboarding": {
     "title": "Commencer",
     "startTitle": "Créer un ménage",
     "startHelp": "Suivez ce que vous avez chez vous, seul ou avec d'autres.",
+    "firstName": "Votre prénom",
     "name": "Nom du ménage",
     "start": "Créer",
     "joinTitle": "Rejoindre un ménage",
@@ -46,6 +55,8 @@
     "joining": "Adhésion en cours…",
     "success": "Vous avez rejoint {name}.",
     "failed": "Cette invitation n'est plus valable.",
+    "nameTitle": "Comment devons-nous vous appeler ?",
+    "nameHelp": "Les autres membres de votre ménage verront ce nom.",
     "create": "Créer un lien d'invitation",
     "linkLabel": "Lien d'invitation",
     "copy": "Copier le lien",

@@ -85,7 +85,10 @@ onMounted(load)
     <UAlert v-if="error" color="error" :description="error" />
 
     <UCard v-for="invite in invites" :key="invite.id">
-      <div class="flex items-center justify-between gap-4">
+      <!-- De knoppen hadden shrink-0 en leverden dus nooit in; op 360px hield
+           het linkveld daardoor nog geen 170px over voor een lange token-URL
+           in monospace. -->
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 text-sm">
           <UInput
             :model-value="linkFor(invite.token)"
@@ -98,7 +101,7 @@ onMounted(load)
             {{ t('invite.usesLeft', { count: invite.max_uses - invite.uses }) }}
           </p>
         </div>
-        <div class="flex shrink-0 gap-2">
+        <div class="flex flex-wrap gap-2 sm:shrink-0">
           <UButton size="sm" variant="subtle" @click="copy(invite.token)">
             {{ copied === invite.token ? t('invite.copied') : t('invite.copy') }}
           </UButton>
