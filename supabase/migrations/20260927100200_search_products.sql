@@ -32,9 +32,18 @@ create function search_products(
   stable
   security invoker
   set search_path = public, extensions
-  set pg_trgm.word_similarity_threshold = 0.2
 as $$
 begin
+  -- Niet als functie-attribuut (`set pg_trgm.word_similarity_threshold = 0.2`):
+  -- dat vereist superuser-rechten, en de productie-deploy draait
+  -- `supabase db push` als de rol `postgres`, die dat op Supabase niet is.
+  -- Nagemeten met die rol: "permission denied to set parameter". Lokaal viel
+  -- het niet op omdat `supabase db reset` wél als superuser draait.
+  --
+  -- set_config(..., true) zet de drempel voor de duur van de transactie en
+  -- lekt dus niet naar de rest van de sessie.
+  perform set_config('pg_trgm.word_similarity_threshold', '0.2', true);
+
   if zoekterm is null or btrim(zoekterm) = '' then
     -- Een lege zoekterm geeft de recentste producten, zodat de pagina niet
     -- leeg opent. Een aparte tak, want `where ... or leeg` zou de
@@ -54,20 +63,29 @@ begin
            limit 1
         ) w
        where p.status <> 'rejected'
-       order by p.created_at desc
+       order by p.created_at desc, p.id
        limit maximum;
     return;
   end if;
 
   return query
     with kandidaat as (
-      -- Let op de twee schrijfrichtingen; ze zijn allebei nodig en ze
-      -- verschillen met opzet.
+      -- Let op de twee schrijfrichtingen; ze zijn allebei nodig, en niet om
+      -- dezelfde reden.
       --
-      -- `pt.name %> zoekterm` is de filterkant. gin_trgm_ops ondersteunt
-      -- alleen %, %> en %>> — de commutatoren — dus de index wordt alleen
-      -- gebruikt met de geïndexeerde kolom links. Andersom geschreven doet
-      -- Postgres stilletjes een sequentiële scan.
+      -- `pt.name %> zoekterm` is de filterkant. gin_trgm_ops registreert %>
+      -- en %>> (naast %); de geïndexeerde kolom links schrijven laat de
+      -- expressie rechtstreeks op de operatorklasse aansluiten en is de
+      -- gangbare vorm. Hier stond eerder dat omgedraaid schrijven
+      -- (`zoekterm <% pt.name`) Postgres stilletjes op een sequentiële scan
+      -- laat vallen — dat is nagemeten en bleek niet te kloppen: de planner
+      -- herschrijft `<%` via zijn geregistreerde commutator naar `%>` en kan
+      -- de index dus ook dan gebruiken (nagemeten op Postgres 17.6, met
+      -- `enable_seqscan` uit om het kostenmodel niet te laten meespelen). Bij
+      -- 2000 rijen koos de planner sowieso een sequentiële scan, ongeacht
+      -- richting — de tabel is er gewoon te klein voor. De geïndexeerde
+      -- kolom links blijft dus de juiste keuze, maar als conventie en
+      -- robuustheid, niet omdat de query er functioneel van afhangt.
       --
       -- `word_similarity(zoekterm, pt.name)` is de scorekant, en die wil de
       -- zoekterm juist als eerste argument: de functie meet hoe goed het
@@ -99,7 +117,7 @@ begin
                   end, pt.locale
          limit 1
       ) w
-     order by k.score desc, w.name
+     order by k.score desc, w.name, p.id
      limit maximum;
 end;
 $$;
