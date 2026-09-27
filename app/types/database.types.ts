@@ -153,14 +153,32 @@ isOneToOne: false
 "create_invite":
 { Args: { "target": string,"uses": number,"valid_days": number }; Returns: string
                            },
+"create_product":
+{ Args: { "brand": string,"gtin": string,"locale": string,"name": string,"net_content": number,"unit": string }; Returns: string
+                           },
 "is_household_member":
 { Args: { "target": string }; Returns: boolean
                            },
 "is_household_owner":
 { Args: { "target": string }; Returns: boolean
                            },
+"mag_product_bewerken":
+{ Args: { "target_product": string }; Returns: boolean
+                           },
+"remove_product_translation":
+{ Args: { "locale": string,"target_product": string }; Returns: undefined
+                           },
 "set_member_role":
 { Args: { "new_role": string,"target_household": string,"target_user": string }; Returns: undefined
+                           },
+"set_product_status":
+{ Args: { "new_status": string,"target_product": string }; Returns: undefined
+                           },
+"set_product_translation":
+{ Args: { "locale": string,"name": string,"target_product": string }; Returns: undefined
+                           },
+"update_product":
+{ Args: { "brand": string,"gtin": string,"net_content": number,"target_product": string,"unit": string }; Returns: undefined
                            }
           }
           Enums: {

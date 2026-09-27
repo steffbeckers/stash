@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withDb, withTx, actAs, enableRls, createUser, resetDb } from './helpers'
+import { withDb, withTx, actAs, enableRls, createUser, resetDb, type Sql } from './helpers'
 
 describe('product', () => {
   beforeEach(resetDb)
@@ -146,6 +146,189 @@ describe('product', () => {
       await expect(
         tx.savepoint((sp) => sp`insert into product default values`),
       ).rejects.toThrow(/row-level security/)
+    })
+  })
+})
+
+describe('product-RPCs', () => {
+  beforeEach(resetDb)
+
+  // `Sql` wordt al geëxporteerd door test/db/helpers.ts. Breid de bestaande
+  // import bovenaan dit bestand uit tot:
+  //   import { withDb, withTx, actAs, enableRls, createUser, resetDb, type Sql } from './helpers'
+  async function maakProduct(tx: Sql, naam = 'Melk') {
+    const [r] = await tx<{ create_product: string }[]>`
+      select create_product(null, null, null, null, 'nl', ${naam}) as create_product
+    `
+    return r!.create_product
+  }
+
+  it('maakt het product en de eerste naam samen aan', async () => {
+    const userId = await createUser('maker@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const id = await maakProduct(tx)
+      const [naam] = await tx<{ name: string; source: string }[]>`
+        select name, source from product_translation where product_id = ${id}
+      `
+      expect(naam!.name).toBe('Melk')
+      expect(naam!.source).toBe('user')
+    })
+  })
+
+  it('zet een nieuw product van een onbekende gebruiker op proposed', async () => {
+    const userId = await createUser('nieuw@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const id = await maakProduct(tx)
+      const [p] = await tx<{ status: string }[]>`select status from product where id = ${id}`
+      expect(p!.status).toBe('proposed')
+    })
+  })
+
+  // De falsificatie van de test hierboven: zonder dit geval zou een
+  // implementatie die álles op proposed zet er net zo groen uitzien.
+  it('zet een nieuw product van een vertrouwde gebruiker op confirmed', async () => {
+    const userId = await createUser('vertrouwd@example.com')
+    await withDb(async (sql) => {
+      await sql`update user_profile set trust_level = 1 where user_id = ${userId}`
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const id = await maakProduct(tx)
+      const [p] = await tx<{ status: string }[]>`select status from product where id = ${id}`
+      expect(p!.status).toBe('confirmed')
+    })
+  })
+
+  it('laat de maker zijn eigen product bewerken', async () => {
+    const userId = await createUser('eigenaar@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const id = await maakProduct(tx)
+      await tx`select update_product(${id}::uuid, null, 'Boni', 1000, 'ml')`
+      const [p] = await tx<{ brand: string }[]>`select brand from product where id = ${id}`
+      expect(p!.brand).toBe('Boni')
+    })
+  })
+
+  it('laat een vreemde het product van iemand anders niet bewerken', async () => {
+    const mijn = await createUser('mijn-product@example.com')
+    const vreemde = await createUser('vreemde@example.com')
+    let id = ''
+    await withTx(async (tx) => {
+      await actAs(tx, mijn)
+      await enableRls(tx)
+      id = await maakProduct(tx)
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, vreemde)
+      await enableRls(tx)
+      // Savepoint isoleert de mislukte aanroep: zonder savepoint blijft de
+      // transactie ná deze aanroep aborted, en meldt postgres.js dat als een
+      // onafgevangen fout op het impliciete commit in plaats van als de
+      // hierboven verwachte afwijzing. Zelfde reden als bij de
+      // insert-buiten-de-RPC-test hierboven in dit bestand.
+      await expect(
+        tx.savepoint(
+          (sp) => sp`select update_product(${id}::uuid, null, 'Gekaapt', null, null)`,
+        ),
+      ).rejects.toThrow(/alleen de maker of een moderator/)
+    })
+  })
+
+  // De andere helft van het paar. Zonder dit geval zou een implementatie die
+  // iedereen weigert — inclusief moderators — er groen uitzien.
+  it('laat een moderator het product van iemand anders wel bewerken', async () => {
+    const mijn = await createUser('mijn-product-2@example.com')
+    const mod = await createUser('moderator@example.com')
+    await withDb(async (sql) => {
+      await sql`update user_profile set role = 'moderator' where user_id = ${mod}`
+    })
+    let id = ''
+    await withTx(async (tx) => {
+      await actAs(tx, mijn)
+      await enableRls(tx)
+      id = await maakProduct(tx)
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, mod)
+      await enableRls(tx)
+      await tx`select update_product(${id}::uuid, null, 'Gecorrigeerd', null, null)`
+      const [p] = await tx<{ brand: string }[]>`select brand from product where id = ${id}`
+      expect(p!.brand).toBe('Gecorrigeerd')
+    })
+  })
+
+  it('voegt een naam in een andere taal toe en vervangt een bestaande', async () => {
+    const userId = await createUser('vertaler@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const id = await maakProduct(tx)
+      await tx`select set_product_translation(${id}::uuid, 'en', 'Milk')`
+      await tx`select set_product_translation(${id}::uuid, 'en', 'Semi-skimmed milk')`
+      const rows = await tx<{ locale: string; name: string }[]>`
+        select locale, name from product_translation where product_id = ${id} order by locale
+      `
+      expect(rows.map((r) => r.locale)).toEqual(['en', 'nl'])
+      expect(rows[0]!.name).toBe('Semi-skimmed milk')
+    })
+  })
+
+  it('weigert het verwijderen van de laatste naam via de RPC', async () => {
+    const userId = await createUser('laatste@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const id = await maakProduct(tx)
+      // Savepoint: zelfde reden als bij de vreemde-mag-niet-bewerken-test
+      // hierboven.
+      await expect(
+        tx.savepoint((sp) => sp`select remove_product_translation(${id}::uuid, 'nl')`),
+      ).rejects.toThrow(/minstens één naam/)
+    })
+  })
+
+  it('laat alleen een moderator de status wijzigen', async () => {
+    const userId = await createUser('statuszoeker@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      const id = await maakProduct(tx)
+      // Savepoint: zelfde reden als bij de vreemde-mag-niet-bewerken-test
+      // hierboven.
+      await expect(
+        tx.savepoint((sp) => sp`select set_product_status(${id}::uuid, 'rejected')`),
+      ).rejects.toThrow(/alleen een moderator/)
+    })
+  })
+
+  // Spiegelt `anon mag geen enkele huishoudfunctie aanroepen`. Elke aanroep
+  // gaat in een eigen savepoint: een geweigerde aanroep breekt de transactie
+  // af, en zonder savepoint zou de tweede aanroep falen op "current
+  // transaction is aborted" in plaats van op de rechten. De query wordt
+  // binnen de callback opgebouwd — geef je een al gemaakte query mee, dan
+  // draait hij buiten het savepoint.
+  it('laat anon geen enkele productfunctie aanroepen', async () => {
+    await withTx(async (tx) => {
+      await enableRls(tx, 'anon')
+      const aanroepen = [
+        (sp: Sql) => sp`select create_product(null, null, null, null, 'nl', 'Melk')`,
+        (sp: Sql) => sp`select update_product(gen_random_uuid(), null, null, null, null)`,
+        (sp: Sql) => sp`select set_product_translation(gen_random_uuid(), 'nl', 'Melk')`,
+        (sp: Sql) => sp`select remove_product_translation(gen_random_uuid(), 'nl')`,
+        (sp: Sql) => sp`select set_product_status(gen_random_uuid(), 'rejected')`,
+      ]
+      for (const aanroep of aanroepen) {
+        await expect(tx.savepoint((sp) => aanroep(sp as unknown as Sql))).rejects.toThrow(
+          /permission denied/,
+        )
+      }
     })
   })
 })
