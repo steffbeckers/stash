@@ -145,7 +145,7 @@ describe('product', () => {
       await enableRls(tx)
       await expect(
         tx.savepoint((sp) => sp`insert into product default values`),
-      ).rejects.toThrow()
+      ).rejects.toThrow(/row-level security/)
     })
   })
 })

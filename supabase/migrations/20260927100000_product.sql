@@ -53,7 +53,7 @@ create table product_translation (
 alter table product enable row level security;
 alter table product_translation enable row level security;
 
--- Alleen lezen, en alleen ingelogd. Er komt met opzet gén insert-, update-
+-- Alleen lezen, en alleen ingelogd. Er komt met opzet geen insert-, update-
 -- of delete-policy: de RPC's uit de volgende migratie zijn de enige deur naar
 -- binnen, en dat is wat de invariant "elk product heeft minstens één naam"
 -- afdwingbaar maakt.
