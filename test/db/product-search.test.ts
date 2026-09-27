@@ -132,6 +132,30 @@ describe('search_products', () => {
     })
   })
 
+  // De rejected-filter staat twee keer in de functie: één keer in de
+  // zoektak, één keer in de lege-zoektermtak. De test hierboven raakt
+  // alleen de eerste, terwijl juist deze tak bij elke paginalading draait.
+  it('laat een afgewezen product ook uit de lege zoekterm', async () => {
+    const userId = await createUser('afgewezen-leeg@example.com')
+    const mod = await createUser('mod-zoek-leeg@example.com')
+    await withDb(async (sql) => {
+      await sql`update user_profile set role = 'moderator' where user_id = ${mod}`
+    })
+    let id = ''
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
+      id = await zaai(tx, { nl: 'Melk' })
+    })
+    await withTx(async (tx) => {
+      await actAs(tx, mod)
+      await enableRls(tx)
+      await tx`select set_product_status(${id}::uuid, 'rejected')`
+      const rijen = await tx`select product_id from search_products('', 'nl', 20)`
+      expect(rijen.length).toBe(0)
+    })
+  })
+
   // De andere helft: een voorgesteld product moet juist wél zichtbaar zijn,
   // anders lijkt je zojuist aangemaakte product verdwenen.
   it('laat een voorgesteld product wel in het resultaat', async () => {

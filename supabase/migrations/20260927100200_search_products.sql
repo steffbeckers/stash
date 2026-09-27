@@ -29,6 +29,13 @@ create function search_products(
   score         real
 )
   language plpgsql
+  -- stable, ondanks de perform set_config() verderop in de body: dat staat
+  -- op gespannen voet met de STABLE-belofte (geen neveneffecten), maar is
+  -- hier geen levend probleem — plpgsql wordt nooit ge-inlined, en de
+  -- instelling is transactie-lokaal, precies de bedoelde reikwijdte.
+  -- stable is bovendien functioneel nodig, niet decoratief: PostgREST staat
+  -- alleen GET toe op RPC's die niet VOLATILE zijn. volatile hier zou het
+  -- zoekeindpunt stilzwijgend POST-only maken.
   stable
   security invoker
   set search_path = public, extensions

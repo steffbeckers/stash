@@ -221,16 +221,19 @@ describe('rechten', () => {
     })
   })
 
-  // Zelfde reden als householdFunctions hierboven, nu voor de vijf
-  // schrijffuncties van de productcatalogus (taak 2): zonder deze regel
-  // bewijst niets in de suite dat de `revoke ... from public, anon` in
-  // 20260927100100_product_rpc.sql daadwerkelijk iets tegenhoudt.
+  // Zelfde reden als householdFunctions hierboven, nu voor de
+  // productcatalogus: zonder deze regel bewijst niets in de suite dat de
+  // `revoke ... from public, anon` in 20260927100100_product_rpc.sql en
+  // 20260927100200_search_products.sql daadwerkelijk iets tegenhoudt. De
+  // eerste vijf zijn taak 2's schrijffuncties; search_products is taak 3's
+  // leesfunctie — anon mag geen van beide aanroepen.
   const productFunctions = [
     'create_product(text, text, numeric, text, text, text)',
     'update_product(uuid, text, text, numeric, text)',
     'set_product_translation(uuid, text, text)',
     'remove_product_translation(uuid, text)',
     'set_product_status(uuid, text)',
+    'search_products(text, text, int)',
   ]
 
   it('anon mag geen enkele productfunctie aanroepen', async () => {
