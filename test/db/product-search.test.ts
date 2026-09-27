@@ -147,11 +147,28 @@ describe('search_products', () => {
 
   it('geeft bij een lege zoekterm de recentste producten', async () => {
     const userId = await createUser('leeg@example.com')
+
+    // Elk product in zijn eigen transactie. now() staat vast binnen een
+    // transactie, dus twee producten die in dezelfde transactie ontstaan
+    // krijgen een identieke created_at en is "recentste eerst" niet
+    // gedefinieerd. In de app gebeurt dat nooit: elke create_product-aanroep
+    // is een eigen transactie. De oude opzet toetste dus een situatie die
+    // niet bestaat, en viel om op de willekeur van gen_random_uuid().
     await withTx(async (tx) => {
       await actAs(tx, userId)
       await enableRls(tx)
       await zaai(tx, { nl: 'Eerste' })
+    })
+
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
       await zaai(tx, { nl: 'Tweede' })
+    })
+
+    await withTx(async (tx) => {
+      await actAs(tx, userId)
+      await enableRls(tx)
       const rijen = await tx<{ naam: string }[]>`select naam from search_products('', 'nl', 20)`
       expect(rijen.map((r) => r.naam)).toEqual(['Tweede', 'Eerste'])
     })
