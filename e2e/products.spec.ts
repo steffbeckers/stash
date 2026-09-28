@@ -42,10 +42,20 @@ test('een gebruiker maakt een product aan en vindt het terug', async ({ page }) 
   await page.reload()
   await expect(page.getByLabel('NL', { exact: true })).toHaveValue('Bio halfvolle melk')
 
-  // Terugvinden op een kort woord in een lange naam — precies het geval
-  // waar similarity() op stukloopt en word_similarity() niet.
   await page.goto(routePath('products', 'en'))
   await waitForHydration(page, 'input')
+
+  // De pagina opent met de recentste producten, dus het zojuist
+  // aangemaakte product staat er al vóór er iets getypt is. Eerst een term
+  // die niet kan matchen: verdwijnt het product daardoor, dan filtert de
+  // zoekfunctie echt. Zonder deze stap slaagt de assertie hieronder ook
+  // als er nooit gezocht wordt.
+  await page.getByLabel(en.products.search).fill('zzzzzzzz')
+  await expect(page.getByText(merk)).toHaveCount(0)
+
+  // En terug: op een kort woord uit een lange naam. Dat is precies het
+  // geval waar similarity() op stukloopt (0,217 tegen een drempel van
+  // 0,3) en word_similarity() niet.
   await page.getByLabel(en.products.search).fill('melk')
   await expect(page.getByText(merk)).toBeVisible()
 })
