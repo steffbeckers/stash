@@ -4,7 +4,10 @@ import { localeCodes } from '~~/routes.config'
 const { t, locale } = useI18n()
 const route = useRoute()
 const user = useSupabaseUser()
-const { profile } = useProfile()
+// Alias, niet `refresh`: die naam zou naast `haal()` hieronder (het product
+// opnieuw ophalen) verwarrend zijn — het zijn twee verschillende dingen die
+// allebei "opnieuw ophalen" betekenen.
+const { profile, refresh: verversProfiel } = useProfile()
 const { load, update, setTranslation, removeTranslation } = useProducts()
 
 const product = ref<ProductDetail | null>(null)
@@ -29,8 +32,14 @@ const eenheden = computed(() => ['ml', 'g', 'stuk'].map((value) => ({ value, lab
 // zijn uitgesteld, dus zonder ongedaan maken is "iedereen mag alles" schade
 // die niemand herstelt (spec §2). De database bewaakt dit ook; dit is alleen
 // de UI die geen knoppen toont die toch zouden weigeren.
-// `profile.role` bestaat sinds Taak 4, Step 3. `profile` wordt gevuld door
-// AppHeader.vue tijdens SSR, dus op een ingelogde pagina staat hij er al.
+// `profile.role` bestaat sinds Taak 4, Step 3. Deze pagina haalt haar eigen
+// profiel op (zie verversProfiel() hieronder) in plaats van te vertrouwen op
+// AppHeader.vue: die ververst maar één keer, bij haar eigen mount, en dat
+// mount kan vóór het inloggen liggen op het gewone magic-link-pad (confirm.vue
+// navigeert client-side, ná hydratie — geen nieuwe SSR-render die AppHeader
+// opnieuw laat opstarten). Zonder deze eigen ophaal zou een moderator die zo
+// binnenkomt een sessie lang op een lege `profile` blijven vastzitten en de
+// bewerkknoppen missen, zonder foutmelding.
 const magBewerken = computed(() =>
   product.value?.createdBy === user.value?.sub
   || ['moderator', 'admin'].includes(profile.value?.role ?? ''),
@@ -56,6 +65,19 @@ async function haal() {
   } catch {
     error.value = t('householdSettings.error')
   }
+}
+
+// Vóór haal(): magBewerken heeft profile.value nodig zodra de pagina de
+// eerste keer rendert. Een falende profielophaal mag deze pagina niet leeg
+// laten — hooguit geen bewerkknoppen (magBewerken valt dan terug op de
+// createdBy-vergelijking), niet "geen pagina". Zelfde aanpak als
+// app/pages/onboarding.vue.
+try {
+  await verversProfiel()
+} catch {
+  // Stil, met opzet: zie de comment hierboven. De rest van de pagina blijft
+  // werken zonder profiel; alleen de bewerkknoppen voor moderators/admins
+  // blijven dan verborgen totdat een volgend bezoek het wél ophaalt.
 }
 
 await haal()
@@ -87,6 +109,23 @@ async function bewaarGegevens() {
   }
 }
 
+// Zelfde constructie als app/components/HouseholdMembers.vue: een
+// PostgREST-fout van supabase-js is hier geen Error-instantie.
+// useProducts.ts doet `if (error) throw error` op het resultaat van de RPC-
+// aanroep, en zonder .throwOnError() is dat kale object gewoon JSON.parse()
+// van de HTTP-foutrespons — {code, details, hint, message} zonder
+// prototype-keten naar Error. `cause instanceof Error` is dus altijd false
+// voor deze foutmeldingen; vandaar deze structurele check op de vorm van
+// het object in plaats van op zijn type.
+function errorMessage(cause: unknown): string {
+  if (cause instanceof Error) return cause.message
+  if (typeof cause === 'object' && cause !== null && 'message' in cause) {
+    const message = (cause as { message: unknown }).message
+    if (typeof message === 'string') return message
+  }
+  return ''
+}
+
 async function bewaarNaam(taal: string) {
   if (!product.value) return
   bezig.value = true
@@ -96,8 +135,21 @@ async function bewaarNaam(taal: string) {
     if (waarde) await setTranslation(product.value.id, taal, waarde)
     else await removeTranslation(product.value.id, taal)
     await haal()
-  } catch {
-    error.value = t('householdSettings.error')
+  } catch (cause) {
+    // De trigger prevent_last_translation_removal weigert het verwijderen
+    // van de laatste naam van een product. Dat is geen storing maar een
+    // regel, dus die krijgt een eigen melding in plaats van de algemene
+    // (zelfde vorm als HouseholdMembers.vue's prevent_last_owner_removal-
+    // geval).
+    error.value = errorMessage(cause).includes('minstens één naam')
+      ? t('products.lastName')
+      : t('householdSettings.error')
+    // v-model had het veld al geleegd vóórdat de weigering binnenkwam;
+    // zonder dit zou een geweigerde verwijdering er identiek uitzien als
+    // een geslaagde. product.value is hier nog de laatst bevestigde
+    // servertoestand — de mislukte aanroep heeft hem niet gewijzigd — dus
+    // dit zet het veld terug naar wat de database daadwerkelijk vasthoudt.
+    vul(product.value)
   } finally {
     bezig.value = false
   }
@@ -192,5 +244,11 @@ const getoondeNaam = computed(() => {
 
       <UAlert v-else-if="error" class="mt-8" color="error" :description="error" />
     </template>
+
+    <!-- Alleen bereikbaar als de eerste haal() al faalde, vóór product of
+         nietGevonden ooit gezet werd — anders zou deze pagina in dat geval
+         een lege container tonen: een melding die niemand ooit ziet. Fouten
+         worden hier nooit stil ingeslikt. -->
+    <UAlert v-else-if="error" color="error" :description="error" />
   </UContainer>
 </template>

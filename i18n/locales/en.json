@@ -59,6 +59,7 @@
     "save": "Save",
     "saved": "Saved.",
     "names": "Names",
+    "lastName": "A product keeps at least one name. Add another language first.",
     "shownIn": "Shown in {language}",
     "sourceUser": "Entered by someone",
     "sourceOff": "From Open Food Facts",

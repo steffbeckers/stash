@@ -59,6 +59,7 @@
     "save": "Enregistrer",
     "saved": "Enregistré.",
     "names": "Noms",
+    "lastName": "Un produit garde au moins un nom. Ajoutez d'abord une autre langue.",
     "shownIn": "Affiché en {language}",
     "sourceUser": "Saisi par quelqu'un",
     "sourceOff": "D'Open Food Facts",

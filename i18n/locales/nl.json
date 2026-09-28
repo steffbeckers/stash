@@ -59,6 +59,7 @@
     "save": "Opslaan",
     "saved": "Opgeslagen.",
     "names": "Namen",
+    "lastName": "Een product houdt minstens één naam. Voeg eerst een andere taal toe.",
     "shownIn": "Getoond in het {language}",
     "sourceUser": "Door iemand ingetikt",
     "sourceOff": "Uit Open Food Facts",
