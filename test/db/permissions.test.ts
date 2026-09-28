@@ -288,6 +288,7 @@ describe('rechten', () => {
       'handle_new_user()',
       'prevent_last_owner_removal()',
       'protect_profile_privileges()',
+      'prevent_last_translation_removal()',
     ]
 
     await withTx(async (tx) => {
