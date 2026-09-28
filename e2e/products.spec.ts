@@ -58,6 +58,11 @@ test('een gebruiker maakt een product aan en vindt het terug', async ({ page }) 
   // zoekfunctie echt. Zonder deze stap slaagt de assertie hieronder ook
   // als er nooit gezocht wordt.
   await page.getByLabel(en.products.search).fill('zzzzzzzz')
+  // products.empty rendert alleen bij !error && !bezig && !resultaten.length:
+  // een AFGERONDE zoekopdracht met nul resultaten. De laadtak kan die
+  // toestand niet produceren, dus deze regel sluit uit dat de assertie
+  // hieronder slaagt op de spinner in plaats van op een leeg resultaat.
+  await expect(page.getByText(en.products.empty)).toBeVisible()
   await expect(page.getByText(merk)).toHaveCount(0)
 
   // En terug: op een kort woord uit een lange naam. Dat is precies het
