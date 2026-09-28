@@ -215,7 +215,11 @@ daarom het juiste instrument.
 De standaard voor `word_similarity` is 0,6. Bij die drempel vindt de typefout
 "mlek" niets (gemeten: 0,200). De drempel gaat daarom naar **0,2** — laag
 genoeg voor typefouten, hoog genoeg om "Sojadrink natuur" buiten te houden
-(0,000). Dat komt als functie-lokale `set` op `search_products`, niet globaal.
+(0,000). Dat gebeurt met `perform set_config('pg_trgm.word_similarity_threshold',
+'0.2', true)` in de functiebody, transactielokaal — niet als functie-lokale
+`set` op `search_products` zelf: die vorm vereist superuser-rechten en faalde
+daarom op de echte deploy (`supabase db push` verbindt als de rol `postgres`,
+die dat op Supabase niet is; zie `docs/superpowers/open-bevindingen.md`).
 
 ### De geïndexeerde kolom staat links — conventie, geen vereiste
 
