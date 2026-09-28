@@ -5,7 +5,14 @@ export interface Profile {
   // mag komen. Dat staat los van `trust_level`, dat verdiend wordt en
   // bepaalt met welke status je eigen bijdragen starten. Zie §2 van
   // docs/superpowers/specs/2026-09-27-catalogus-producten-design.md.
-  role: string
+  //
+  // Letterlijke unie, geen string: dit is de enige autorisatiecheck in de
+  // app zonder type of test erachter (zie de moderator-tak in
+  // app/pages/products/[id].vue). Een getypte union maakt een verkeerd
+  // getypte rolnaam op de aanroepplek een compileerfout in plaats van een
+  // stille bug die pas opvalt als een moderator zijn knoppen kwijt is
+  // (fix 4 van de eindreview).
+  role: 'user' | 'moderator' | 'admin'
 }
 
 /**
@@ -38,7 +45,16 @@ export function useProfile() {
       .single()
 
     if (error) throw error
-    profile.value = { userId: data.user_id, displayName: data.display_name, role: data.role }
+    profile.value = {
+      userId: data.user_id,
+      displayName: data.display_name,
+      // user_profile.role is een tekstkolom met een check-constraint, geen
+      // Postgres-enum, dus het gegenereerde type geeft hier `string` terug
+      // in plaats van de letterlijke unie. De check-constraint garandeert
+      // de waarde; deze cast benoemt dat, net als Household['role'] in
+      // useHousehold.ts.
+      role: data.role as Profile['role'],
+    }
   }
 
   async function save(displayName: string): Promise<void> {

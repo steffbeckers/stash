@@ -20,13 +20,19 @@ const merk = ref('')
 const inhoud = ref<number | null>(null)
 // string | undefined, niet | null: zelfde beperking als in
 // app/pages/products/new.vue — USelect's v-model-type staat alleen
-// `undefined` toe voor "niets gekozen". update() wil wél `string | null`,
-// dus die vertaling gebeurt in vul() (inladen) en bewaarGegevens() (opslaan).
+// `undefined` toe voor "niets gekozen". update() wil wél `string | null`;
+// die vertaling en de bewaking van het paar gebeuren nu in
+// valideerInhoudEenheid() (app/utils/eenheden.ts), aangeroepen vanuit
+// bewaarGegevens() hieronder.
 const eenheid = ref<string | undefined>(undefined)
 const gtin = ref('')
 const namen = ref<Record<string, string>>({})
 
-const eenheden = computed(() => ['ml', 'g', 'stuk'].map((value) => ({ value, label: value })))
+// eenheidOpties()/valideerInhoudEenheid(): gedeeld met
+// app/pages/products/new.vue via app/utils/eenheden.ts (fix 2 van de
+// eindreview). Vóór die fix had `eenheden` hier geen lege optie, dus een
+// eenmaal gekozen eenheid kon via deze pagina nooit meer verwijderd worden.
+const eenheden = computed(() => eenheidOpties(t('products.noUnit')))
 
 // Bewerken mag de maker en een moderator. product_revision en het terugdraaien
 // zijn uitgesteld, dus zonder ongedaan maken is "iedereen mag alles" schade
@@ -40,15 +46,27 @@ const eenheden = computed(() => ['ml', 'g', 'stuk'].map((value) => ({ value, lab
 // opnieuw laat opstarten). Zonder deze eigen ophaal zou een moderator die zo
 // binnenkomt een sessie lang op een lege `profile` blijven vastzitten en de
 // bewerkknoppen missen, zonder foutmelding.
+//
+// Directe vergelijkingen, geen .includes() op een array: `role` is sinds de
+// eindreview een letterlijke unie ('user' | 'moderator' | 'admin'), niet
+// meer string, maar dat typeert alleen mee als de aanroepplek er ook naar
+// vergelijkt. Een array-literal zoals ['moderator', 'admin'] verbreedt naar
+// string[] en zou een getypte 'modorator' niet vangen; == op de unie zelf
+// wel — geverifieerd door dit zo te schrijven en typecheck te laten falen op
+// een expres ingebouwde typefout.
 const magBewerken = computed(() =>
   product.value?.createdBy === user.value?.sub
-  || ['moderator', 'admin'].includes(profile.value?.role ?? ''),
+  || profile.value?.role === 'moderator'
+  || profile.value?.role === 'admin',
 )
 
 function vul(p: ProductDetail) {
   merk.value = p.brand ?? ''
   inhoud.value = p.netContent
-  eenheid.value = p.unit ?? undefined
+  // GEEN_EENHEID in plaats van undefined: de lege optie in `eenheden` (fix 2
+  // van de eindreview) staat dan zichtbaar als "geen eenheid" geselecteerd,
+  // in plaats van een lege placeholder die met geen enkel item overeenkomt.
+  eenheid.value = p.unit ?? GEEN_EENHEID
   gtin.value = p.gtin ?? ''
   namen.value = Object.fromEntries(p.vertalingen.map((v) => [v.locale, v.name]))
 }
@@ -90,6 +108,18 @@ function bronLabel(source: string): string {
 
 async function bewaarGegevens() {
   if (!product.value) return
+
+  // Content en unit gaan samen (check-constraint product_inhoud_en_eenheid).
+  // Zonder deze voorcontrole kon het legen van alleen het inhoudveld — de
+  // eenheid stond dan nog op de vorige waarde, want USelect had vóór fix 2
+  // geen manier om hem ook leeg te maken — de RPC laten weigeren met de
+  // generieke foutmelding.
+  const paar = valideerInhoudEenheid(inhoud.value, eenheid.value)
+  if (!paar) {
+    error.value = t('products.contentUnitTogether')
+    return
+  }
+
   bezig.value = true
   error.value = ''
   saved.value = false
@@ -97,8 +127,8 @@ async function bewaarGegevens() {
     await update(product.value.id, {
       gtin: gtin.value.trim() || null,
       brand: merk.value.trim() || null,
-      netContent: inhoud.value,
-      unit: eenheid.value ?? null,
+      netContent: paar.netContent,
+      unit: paar.unit,
     })
     saved.value = true
     await haal()

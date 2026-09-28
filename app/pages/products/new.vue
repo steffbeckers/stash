@@ -10,15 +10,19 @@ const inhoud = ref<number | null>(null)
 // string | undefined, niet | null: USelect leidt zijn v-model-type af uit
 // `eenheden`s value-veld (string) en staat alleen `undefined` toe voor "niets
 // gekozen" — geverifieerd via Select.vue.d.ts. create_product wil wél
-// `string | null`, dus die vertaling gebeurt in bewaar() hieronder.
+// `string | null`; die vertaling en de bewaking van het paar gebeuren nu in
+// valideerInhoudEenheid() (app/utils/eenheden.ts), aangeroepen vanuit
+// bewaar() hieronder.
 const eenheid = ref<string | undefined>(undefined)
 const gtin = ref('')
 const bezig = ref(false)
 const error = ref('')
 
-const eenheden = computed(() =>
-  ['ml', 'g', 'stuk'].map((value) => ({ value, label: value })),
-)
+// eenheidOpties()/valideerInhoudEenheid(): gedeeld met
+// app/pages/products/[id].vue via app/utils/eenheden.ts (fix 2 van de
+// eindreview) — zie dat bestand voor waarom de lege optie een sentinel
+// gebruikt in plaats van een lege string.
+const eenheden = computed(() => eenheidOpties(t('products.noUnit')))
 
 /**
  * Een GTIN heeft een controlecijfer: de som van de cijfers, afwisselend maal
@@ -45,14 +49,24 @@ const gtinWaarschuwing = computed(() => {
 })
 
 async function bewaar() {
+  // Vóór bezig/error: content en unit gaan samen (check-constraint
+  // product_inhoud_en_eenheid). Zonder deze voorcontrole kon "alleen
+  // Content invullen" — de aanmoediging uit contentHelp hieronder — de RPC
+  // laten weigeren met de generieke foutmelding (fix 2 van de eindreview).
+  const paar = valideerInhoudEenheid(inhoud.value, eenheid.value)
+  if (!paar) {
+    error.value = t('products.contentUnitTogether')
+    return
+  }
+
   bezig.value = true
   error.value = ''
   try {
     const id = await create({
       gtin: gtin.value.trim() || null,
       brand: merk.value.trim() || null,
-      netContent: inhoud.value,
-      unit: eenheid.value ?? null,
+      netContent: paar.netContent,
+      unit: paar.unit,
       locale: locale.value,
       name: naam.value.trim(),
     })
