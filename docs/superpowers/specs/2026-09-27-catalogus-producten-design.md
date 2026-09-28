@@ -217,12 +217,24 @@ De standaard voor `word_similarity` is 0,6. Bij die drempel vindt de typefout
 genoeg voor typefouten, hoog genoeg om "Sojadrink natuur" buiten te houden
 (0,000). Dat komt als functie-lokale `set` op `search_products`, niet globaal.
 
-### De index werkt alleen in één schrijfrichting
+### De geïndexeerde kolom staat links — conventie, geen vereiste
 
 `gin_trgm_ops` ondersteunt `%`, `%>` en `%>>` — de commutatoren van `<%` en
-`<<%`. De index wordt dus alleen gebruikt als de **geïndexeerde kolom links**
-staat: `name %> zoekterm`, niet `zoekterm <% name`. Andersom geschreven doet
-Postgres stilletjes een sequentiële scan.
+`<<%`. De **geïndexeerde kolom links** schrijven (`name %> zoekterm`, niet
+`zoekterm <% name`) laat de expressie rechtstreeks op de operatorklasse
+aansluiten en is de gangbare vorm.
+
+Hier stond eerder dat de omgekeerde volgorde Postgres stilletjes op een
+sequentiële scan laat vallen. Dat is tijdens taak 3 nagemeten en bleek niet te
+kloppen: de planner herschrijft `<%` via zijn geregistreerde commutator naar
+`%>`, dus de index is in beide richtingen bruikbaar. Bij het geteste
+rijaantal (2000) koos de planner sowieso een sequentiële scan, ongeacht
+richting — op kosten, want de tabel was er te klein voor om de index lonend
+te maken. De geïndexeerde kolom links blijft dus de juiste keuze, maar als
+conventie en als de vorm die rechtstreeks bij de operatorklasse aansluit, niet
+omdat de omgekeerde vorm de index onbruikbaar maakt. Het commentaar in de
+migratie (`supabase/migrations/20260927100200_search_products.sql`) is toen
+al gecorrigeerd; deze paragraaf hier nog niet — dat is nu ingehaald.
 
 De functie draait met `set search_path = public, extensions`, anders is
 `word_similarity()` niet vindbaar.
