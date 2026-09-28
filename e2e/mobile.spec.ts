@@ -157,4 +157,11 @@ test('bediening staat gestapeld op 360px in plaats van samengedrukt', async ({ p
     page.getByRole('button', { name: bundles.en.invite.copy }),
     'uitnodigingskaart',
   )
+
+  await page.goto(routePath('products/new', 'en'))
+  await verwachtGestapeld(
+    page.getByLabel(bundles.en.products.netContent),
+    page.getByLabel(bundles.en.products.unit),
+    'inhoud-en-eenheid',
+  )
 })
