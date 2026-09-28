@@ -45,6 +45,13 @@ test('een gebruiker maakt een product aan en vindt het terug', async ({ page }) 
   await page.goto(routePath('products', 'en'))
   await waitForHydration(page, 'input')
 
+  // De lijst wordt pas na hydratie opgehaald (onMounted(zoek), client-only),
+  // dus het product staat er niet meteen. Zonder deze regel kan de negatieve
+  // assertie hieronder slagen omdat het product nog niet geladen IS, in
+  // plaats van omdat het weggefilterd is — dezelfde valse groene test in een
+  // andere vorm.
+  await expect(page.getByText(merk)).toBeVisible()
+
   // De pagina opent met de recentste producten, dus het zojuist
   // aangemaakte product staat er al vóór er iets getypt is. Eerst een term
   // die niet kan matchen: verdwijnt het product daardoor, dan filtert de
