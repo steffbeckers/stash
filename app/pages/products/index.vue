@@ -58,12 +58,15 @@ onMounted(zoek)
 
     <ul v-else-if="resultaten.length" class="mt-6 divide-y divide-default">
       <li v-for="r in resultaten" :key="r.productId" class="py-3">
-        <p class="font-medium">{{ r.naam }}</p>
-        <p class="text-sm text-muted">
-          <span v-if="r.merk">{{ r.merk }}</span>
-          <span v-if="r.netContent"> · {{ r.netContent }} {{ r.unit }}</span>
-          <span v-if="r.status === 'proposed'"> · {{ t('products.statusProposed') }}</span>
-        </p>
+        <NuxtLink :to="localePath({ name: 'products-id', params: { id: r.productId } })" class="block">
+          <p class="font-medium">{{ r.naam }}</p>
+          <p class="text-sm text-muted">
+            <span v-if="r.merk">{{ r.merk }}</span>
+            <span v-if="r.netContent"> · {{ r.netContent }} {{ r.unit }}</span>
+            <span v-if="r.getoondeTaal !== $i18n.locale"> · {{ t('products.shownIn', { language: r.getoondeTaal.toUpperCase() }) }}</span>
+            <span v-if="r.status === 'proposed'"> · {{ t('products.statusProposed') }}</span>
+          </p>
+        </NuxtLink>
       </li>
     </ul>
 

@@ -31,6 +31,7 @@ export const routePaths = {
   'inventory': { en: '/inventory', nl: '/voorraad', fr: '/stock' },
   'products': { en: '/products', nl: '/producten', fr: '/produits' },
   'products/new': { en: '/products/new', nl: '/producten/nieuw', fr: '/produits/nouveau' },
+  'products/[id]': { en: '/products/[id]', nl: '/producten/[id]', fr: '/produits/[id]' },
   'onboarding': { en: '/get-started', nl: '/aan-de-slag', fr: '/bienvenue' },
   'settings/profile': {
     en: '/settings/profile',

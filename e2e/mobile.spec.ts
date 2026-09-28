@@ -11,6 +11,7 @@ test.use({ viewport: { width: 360, height: 740 } })
 const uitzonderingen: Partial<Record<RouteKey, string>> = {
   'confirm': 'stuurt meteen door zodra de sessie er is; geen stabiele pagina om te meten',
   'invite/[token]': 'heeft een echt token nodig en wordt gedekt door invite.spec.ts',
+  'products/[id]': 'heeft een echt product-id nodig; wordt gedekt door e2e/products.spec.ts',
 }
 
 const teMeten = (Object.keys(routePaths) as RouteKey[]).filter((route) => !(route in uitzonderingen))
