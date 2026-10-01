@@ -321,5 +321,7 @@ test('wie te laat afstreept, krijgt te horen dat het al gebeurd is', async ({ pa
   // De tweede pagina toont nog de oude lijst.
   await afstrepen(tweede).click()
   await tweede.getByRole('button', { name: en.inventory.consumed }).click()
-  await expect(tweede.getByText(en.inventory.alreadyClosed)).toBeVisible()
+  // exact: de toast staat er ook als schermlezermelding ("Notification ...")
+  // die de tekst als deelreeks bevat, en dat geeft een strict-mode-fout.
+  await expect(tweede.getByText(en.inventory.alreadyClosed, { exact: true })).toBeVisible()
 })
