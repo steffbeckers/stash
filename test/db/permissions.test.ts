@@ -250,6 +250,28 @@ describe('rechten', () => {
     })
   })
 
+  // De leesfuncties van de voorraad. Allebei invoker, maar zonder deze regel
+  // bewijst niets dat de revoke voor anon in 20261001100300_voorraad.sql
+  // daadwerkelijk iets tegenhoudt.
+  const voorraadFunctions = [
+    'voorraad(uuid, text)',
+    'product_weergavenaam(uuid, text)',
+  ]
+
+  it('anon mag geen enkele voorraadfunctie aanroepen', async () => {
+    await withTx(async (tx) => {
+      for (const fn of voorraadFunctions) {
+        const [row] = await tx<{ anon: boolean; auth: boolean }[]>`
+          select
+            has_function_privilege('anon', ${fn}, 'execute') as anon,
+            has_function_privilege('authenticated', ${fn}, 'execute') as auth
+        `
+        expect(row!.anon, `anon op ${fn}`).toBe(false)
+        expect(row!.auth, `authenticated op ${fn}`).toBe(true)
+      }
+    })
+  })
+
   // mag_product_bewerken is geen triggerfunctie — hij wordt door de andere
   // security-definer-functies aangeroepen, niet door een trigger — maar de
   // intrekking is even strikt en om een eigen reden: het is de gedeelde
@@ -289,6 +311,7 @@ describe('rechten', () => {
       'prevent_last_owner_removal()',
       'protect_profile_privileges()',
       'prevent_last_translation_removal()',
+      'stamp_inventory_item_closure()',
     ]
 
     await withTx(async (tx) => {

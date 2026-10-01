@@ -29,6 +29,7 @@ export type LocaleCode = (typeof localeCodes)[number]
  */
 export const routePaths = {
   'inventory': { en: '/inventory', nl: '/voorraad', fr: '/stock' },
+  'inventory/new': { en: '/inventory/new', nl: '/voorraad/nieuw', fr: '/stock/nouveau' },
   'products': { en: '/products', nl: '/producten', fr: '/produits' },
   'products/new': { en: '/products/new', nl: '/producten/nieuw', fr: '/produits/nouveau' },
   'products/[id]': { en: '/products/[id]', nl: '/producten/[id]', fr: '/produits/[id]' },

@@ -39,7 +39,7 @@ async function verwachtGeenOverflow(page: Page, pad: string): Promise<void> {
   // voor headeralleen-pagina's.
   await waitForHydration(page, 'header button')
 
-  // Een pagina kan ook pas ná hydratie doorsturen — app/pages/inventory.vue
+  // Een pagina kan ook pas ná hydratie doorsturen — app/pages/inventory/index.vue
   // doet dat al in zijn eigen onMounted zodra er geen huishouden is. Zonder
   // deze herhaalde controle zou zo'n pagina hierboven op haar oorspronkelijke
   // URL goedgekeurd worden en hieronder alsnog op het doel van de redirect
@@ -120,11 +120,22 @@ async function verwachtGestapeld(
   onder: import('@playwright/test').Locator,
   naam: string,
 ): Promise<void> {
-  const a = await boven.boundingBox()
-  const b = await onder.boundingBox()
-  expect(a, `${naam}: het bovenste element is niet zichtbaar`).not.toBeNull()
-  expect(b, `${naam}: het onderste element is niet zichtbaar`).not.toBeNull()
-  expect(b!.y, `${naam} staat nog op dezelfde regel`).toBeGreaterThanOrEqual(a!.y + a!.height)
+  await expect(boven, `${naam}: het bovenste element is niet zichtbaar`).toBeVisible()
+  await expect(onder, `${naam}: het onderste element is niet zichtbaar`).toBeVisible()
+
+  // Beide rechthoeken in één evaluate, dus uit hetzelfde frame. Twee losse
+  // boundingBox()-aanroepen meten op twee momenten, en een lay-out die
+  // daartussen verschuift maakt de vergelijking zinloos. Gemeten in CI op
+  // /inventory/new: de zoekopdracht verving de lijst met recente producten
+  // door een kortere tussen de twee metingen, en het onderste element kwam
+  // 238px bóven het bovenste uit — rood, terwijl de rij wel stapelde.
+  const [a, b] = await Promise.all([boven.elementHandle(), onder.elementHandle()])
+  const [ra, rb] = await boven.page().evaluate(([x, y]) => {
+    const r1 = x!.getBoundingClientRect()
+    const r2 = y!.getBoundingClientRect()
+    return [{ y: r1.y, height: r1.height }, { y: r2.y, height: r2.height }]
+  }, [a, b] as const)
+  expect(rb.y, `${naam} staat nog op dezelfde regel`).toBeGreaterThanOrEqual(ra.y + ra.height)
 }
 
 test('bediening staat gestapeld op 360px in plaats van samengedrukt', async ({ page }) => {
@@ -163,5 +174,32 @@ test('bediening staat gestapeld op 360px in plaats van samengedrukt', async ({ p
     page.getByLabel(bundles.en.products.netContent),
     page.getByLabel(bundles.en.products.unit),
     'inhoud-en-eenheid',
+  )
+
+  // Het toevoegformulier verschijnt pas nadat er een product gekozen is.
+  const product = `Stapelproduct${Date.now()}`
+  await page.goto(routePath('inventory/new', 'en'))
+  await waitForHydration(page, 'input')
+  await page.getByLabel(bundles.en.inventory.searchProduct).fill(product)
+  await page.getByRole('button', { name: bundles.en.products.createNamed.replace('{name}', product) }).click()
+  // Het inline aanmaakpaneel staat nu open, nog vóór het product bestaat.
+  await verwachtGestapeld(
+    page.getByLabel(bundles.en.products.netContent),
+    page.getByLabel(bundles.en.products.unit),
+    'picker-inhoud-en-eenheid',
+  )
+
+  await page.getByRole('button', { name: bundles.en.inventory.createProduct }).click()
+  await verwachtGestapeld(
+    page.getByLabel(bundles.en.inventory.count),
+    page.getByLabel(bundles.en.inventory.expiresAt),
+    'aantal-en-vervaldatum',
+  )
+
+  await page.getByLabel(bundles.en.inventory.byWeight).check()
+  await verwachtGestapeld(
+    page.getByLabel(bundles.en.inventory.amount),
+    page.getByLabel(bundles.en.inventory.amountUnit),
+    'gewicht-en-eenheid',
   )
 })
