@@ -164,6 +164,66 @@ describe('inventory_item: schema', () => {
     })
   })
 
+  it('weigert een onbekende afstreepreden', async () => {
+    const eigenaar = await createUser('onbekende-reden@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      const e = await fout(
+        tx.savepoint((sp) => sp`
+          insert into inventory_item (household_id, product_id, storage_place_id, status, closed_at, closed_reason)
+          values (${hh.id}, ${p}, ${hh.plaats('pantry')}, 'closed', now(), 'bogus')
+        `),
+      )
+      expect(e).toMatchObject({ constraint_name: 'inventory_item_reden' })
+    })
+  })
+
+  it('weigert een afstreping zonder tijdstip', async () => {
+    const eigenaar = await createUser('geen-tijdstip@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      const e = await fout(
+        tx.savepoint((sp) => sp`
+          insert into inventory_item (household_id, product_id, storage_place_id, status, closed_at, closed_reason)
+          values (${hh.id}, ${p}, ${hh.plaats('pantry')}, 'closed', null, 'consumed')
+        `),
+      )
+      expect(e).toMatchObject({ code: '23514', constraint_name: 'inventory_item_samenhang' })
+    })
+  })
+
+  it('weigert een tijdstip van afstrepen op een item dat nog in voorraad is', async () => {
+    const eigenaar = await createUser('tijdstip-in-voorraad@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      const e = await fout(
+        tx.savepoint((sp) => sp`
+          insert into inventory_item (household_id, product_id, storage_place_id, closed_at)
+          values (${hh.id}, ${p}, ${hh.plaats('pantry')}, now())
+        `),
+      )
+      expect(e).toMatchObject({ code: '23514', constraint_name: 'inventory_item_samenhang' })
+    })
+  })
+
+  it('weigert een afsteker op een item dat nog in voorraad is', async () => {
+    const eigenaar = await createUser('afsteker-in-voorraad@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      const e = await fout(
+        tx.savepoint((sp) => sp`
+          insert into inventory_item (household_id, product_id, storage_place_id, closed_by)
+          values (${hh.id}, ${p}, ${hh.plaats('pantry')}, ${eigenaar})
+        `),
+      )
+      expect(e).toMatchObject({ code: '23514', constraint_name: 'inventory_item_samenhang' })
+    })
+  })
+
   // De positieve helft van de twee hierboven.
   it('laat een volledige afstreping toe', async () => {
     const eigenaar = await createUser('volledig@example.com')
@@ -228,6 +288,8 @@ describe('inventory_item: schema', () => {
 
       const rows = await tx`select 1 from inventory_item`
       expect(rows.length).toBe(0)
+      const plaatsen = await tx`select 1 from storage_place where household_id = ${hh.id}`
+      expect(plaatsen.length).toBe(0)
     })
   })
 })

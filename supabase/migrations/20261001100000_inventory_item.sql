@@ -51,6 +51,8 @@ create table inventory_item (
   -- beschrijft de verpakking, het item de hoeveelheid die er ligt.
   constraint inventory_item_eenheid
     check (unit in ('stuk', 'kg', 'g', 'l', 'ml')),
+  -- Overbodig naast inventory_item_samenhang: elke andere status faalt daar al,
+  -- dus geen test kan het verdwijnen ervan zien. Blijft als leesbare domeinregel.
   constraint inventory_item_status
     check (status in ('in_stock', 'closed')),
   constraint inventory_item_reden
