@@ -217,7 +217,7 @@ describe('inventory_item: schema', () => {
     })
   })
 
-  it('weigert een afsteker op een item dat nog in voorraad is', async () => {
+  it('weigert een afstreper op een item dat nog in voorraad is', async () => {
     const eigenaar = await createUser('afsteker-in-voorraad@example.com')
     await withTx(async (tx) => {
       const hh = await maakHuishouden(tx, eigenaar)
