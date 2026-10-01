@@ -52,6 +52,9 @@ onMounted(async () => {
 })
 
 async function bewaar() {
+  // Enter in een veld omzeilt de uitgeschakelde knop: zonder deze wacht zou
+  // een tweede submit tijdens het lopende add() alles dubbel toevoegen.
+  if (bezig.value) return
   if (!product.value || !plaats.value || !activeId.value) return
 
   // Number(): een geleegd getalveld geeft '' terug, niet null (zie

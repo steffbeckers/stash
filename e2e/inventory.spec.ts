@@ -81,4 +81,8 @@ test('de strook toont wat binnenkort vervalt en niet wat later vervalt', async (
   // Bewijst dat het tweede item er wél is: anders slaagt de regel hierboven
   // ook als het toevoegen stil mislukte.
   await expect(groep(page, 'Pantry', later)).toBeVisible()
+  // Samen met de regel hierboven pint dit de voorkeur uit ?plaats=: de
+  // plaatsen staan in willekeurige volgorde, dus wie de query negeert kan
+  // niet tegelijk snel→Fridge én later→Pantry halen.
+  await expect(groep(page, 'Fridge', snel)).toBeVisible()
 })
