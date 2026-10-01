@@ -143,6 +143,7 @@ async function bewaar() {
         </div>
 
         <UCheckbox v-model="opGewicht" :label="t('inventory.byWeight')" />
+        <!-- Ook gestapeld onder sm; dezelfde stapeltest toetst dit. -->
         <div v-if="opGewicht" class="flex flex-col gap-4 sm:flex-row">
           <UFormField :label="t('inventory.amount')" name="hoeveelheid" class="sm:flex-1">
             <UInput v-model.number="hoeveelheid" type="number" min="0" step="any" class="w-full" />

@@ -112,8 +112,8 @@ async function maakAan() {
       {{ zoekterm.trim() ? t('products.createNamed', { name: zoekterm.trim() }) : t('products.create') }}
     </UButton>
 
-    <!-- Geen <form>: Enter in deze velden mag niets anders indienen dan wat
-         de knop doet, en de pagina eromheen heeft haar eigen formulier. -->
+    <!-- Geen <form>: Enter in deze velden mag niets indienen. Aanmaken gaat
+         alleen via de knop onderaan. -->
     <div v-else class="mt-4 space-y-4 rounded-md border border-default p-3">
       <UFormField :label="t('products.name')" name="naam">
         <UInput v-model="naam" :maxlength="200" class="w-full" />
@@ -122,6 +122,7 @@ async function maakAan() {
         <UInput v-model="merk" class="w-full" />
       </UFormField>
       <UFormField :label="t('products.netContent')" name="inhoud">
+        <!-- Onder sm gestapeld; de stapeltest in e2e/mobile.spec.ts toetst dat. -->
         <div class="flex flex-col gap-2 sm:flex-row">
           <UInput v-model.number="inhoud" type="number" min="0" class="w-full sm:flex-1" />
           <USelect

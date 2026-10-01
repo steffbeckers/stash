@@ -164,4 +164,31 @@ test('bediening staat gestapeld op 360px in plaats van samengedrukt', async ({ p
     page.getByLabel(bundles.en.products.unit),
     'inhoud-en-eenheid',
   )
+
+  // Het toevoegformulier verschijnt pas nadat er een product gekozen is.
+  const product = `Stapelproduct${Date.now()}`
+  await page.goto(routePath('inventory/new', 'en'))
+  await waitForHydration(page, 'input')
+  await page.getByLabel(bundles.en.inventory.searchProduct).fill(product)
+  await page.getByRole('button', { name: bundles.en.products.createNamed.replace('{name}', product) }).click()
+  // Het inline aanmaakpaneel staat nu open, nog vóór het product bestaat.
+  await verwachtGestapeld(
+    page.getByLabel(bundles.en.products.netContent),
+    page.getByLabel(bundles.en.products.unit),
+    'picker-inhoud-en-eenheid',
+  )
+
+  await page.getByRole('button', { name: bundles.en.inventory.createProduct }).click()
+  await verwachtGestapeld(
+    page.getByLabel(bundles.en.inventory.count),
+    page.getByLabel(bundles.en.inventory.expiresAt),
+    'aantal-en-vervaldatum',
+  )
+
+  await page.getByLabel(bundles.en.inventory.byWeight).check()
+  await verwachtGestapeld(
+    page.getByLabel(bundles.en.inventory.amount),
+    page.getByLabel(bundles.en.inventory.amountUnit),
+    'gewicht-en-eenheid',
+  )
 })

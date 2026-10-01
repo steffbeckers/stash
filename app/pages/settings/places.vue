@@ -28,6 +28,11 @@ async function load() {
     .select('id, name, kind')
     .eq('household_id', activeId.value)
     .order('created_at')
+    // create_household() maakt drie plaatsen in één statement met dezelfde
+    // created_at; id breekt die gelijkstand op dezelfde manier als
+    // useInventory.loadPlaces, zodat de voorraadpagina in dezelfde volgorde
+    // blokken toont als deze lijst (spec §6).
+    .order('id')
   if (loadError) {
     error.value = t('householdSettings.error')
     return
@@ -59,7 +64,10 @@ async function add() {
 async function remove(id: string) {
   const { error: deleteError } = await supabase.from('storage_place').delete().eq('id', id)
   if (deleteError) {
-    error.value = t('householdSettings.error')
+    // Spec §4: ligt er nog voorraad, dan houdt de samenhangcheck op
+    // inventory_item het verwijderen tegen. Dat verdient zijn eigen uitleg,
+    // niet "dat is niet gelukt".
+    error.value = isSamenhangFout(deleteError) ? t('places.hasStock') : t('householdSettings.error')
     return
   }
   await load()
@@ -97,7 +105,13 @@ onMounted(async () => {
             <p class="font-medium">{{ place.name }}</p>
             <p class="text-sm text-muted">{{ t(`places.${place.kind}`) }}</p>
           </div>
-          <UButton size="sm" color="error" variant="ghost" @click="remove(place.id)">
+          <UButton
+            size="sm"
+            color="error"
+            variant="ghost"
+            :aria-label="t('places.deleteNamed', { name: place.name })"
+            @click="remove(place.id)"
+          >
             {{ t('places.delete') }}
           </UButton>
         </div>

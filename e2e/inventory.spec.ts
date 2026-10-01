@@ -216,3 +216,27 @@ test('verwijderen vraagt eerst bevestiging en laat geen ongedaan maken toe', asy
   await page.reload()
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
 })
+
+test('een plaats met voorraad kan niet weg', async ({ page }) => {
+  const plaats = `Kelder${Date.now()}`
+  const naam = `Wijn${Date.now()}`
+  await signIn(page, `voorraad-plaats-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Pim', huishouden: 'Plaatshuis' })
+
+  await page.goto(routePath('settings/places', 'en'))
+  await waitForHydration(page)
+  await page.getByPlaceholder(en.places.name).fill(plaats)
+  await page.getByRole('button', { name: en.places.add }).click()
+  await expect(page.getByText(plaats)).toBeVisible()
+
+  await voegToe(page, { plaats, naam, nieuw: true })
+  await expect(groep(page, plaats, naam)).toBeVisible()
+
+  await page.goto(routePath('settings/places', 'en'))
+  await waitForHydration(page)
+  await page.getByRole('button', { name: tekst(en.places.deleteNamed, { name: plaats }), exact: true }).click()
+  await expect(page.getByText(en.places.hasStock)).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByText(plaats)).toBeVisible()
+})
