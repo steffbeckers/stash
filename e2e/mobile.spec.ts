@@ -120,11 +120,22 @@ async function verwachtGestapeld(
   onder: import('@playwright/test').Locator,
   naam: string,
 ): Promise<void> {
-  const a = await boven.boundingBox()
-  const b = await onder.boundingBox()
-  expect(a, `${naam}: het bovenste element is niet zichtbaar`).not.toBeNull()
-  expect(b, `${naam}: het onderste element is niet zichtbaar`).not.toBeNull()
-  expect(b!.y, `${naam} staat nog op dezelfde regel`).toBeGreaterThanOrEqual(a!.y + a!.height)
+  await expect(boven, `${naam}: het bovenste element is niet zichtbaar`).toBeVisible()
+  await expect(onder, `${naam}: het onderste element is niet zichtbaar`).toBeVisible()
+
+  // Beide rechthoeken in één evaluate, dus uit hetzelfde frame. Twee losse
+  // boundingBox()-aanroepen meten op twee momenten, en een lay-out die
+  // daartussen verschuift maakt de vergelijking zinloos. Gemeten in CI op
+  // /inventory/new: de zoekopdracht verving de lijst met recente producten
+  // door een kortere tussen de twee metingen, en het onderste element kwam
+  // 238px bóven het bovenste uit — rood, terwijl de rij wel stapelde.
+  const [a, b] = await Promise.all([boven.elementHandle(), onder.elementHandle()])
+  const [ra, rb] = await boven.page().evaluate(([x, y]) => {
+    const r1 = x!.getBoundingClientRect()
+    const r2 = y!.getBoundingClientRect()
+    return [{ y: r1.y, height: r1.height }, { y: r2.y, height: r2.height }]
+  }, [a, b] as const)
+  expect(rb.y, `${naam} staat nog op dezelfde regel`).toBeGreaterThanOrEqual(ra.y + ra.height)
 }
 
 test('bediening staat gestapeld op 360px in plaats van samengedrukt', async ({ page }) => {
