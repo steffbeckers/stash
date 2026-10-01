@@ -221,6 +221,59 @@ describe('rechten', () => {
     })
   })
 
+  // Zelfde reden als householdFunctions hierboven, nu voor de
+  // productcatalogus: zonder deze regel bewijst niets in de suite dat de
+  // `revoke ... from public, anon` in 20260927100100_product_rpc.sql en
+  // 20260927100200_search_products.sql daadwerkelijk iets tegenhoudt. De
+  // eerste vijf zijn taak 2's schrijffuncties; search_products is taak 3's
+  // leesfunctie — anon mag geen van beide aanroepen.
+  const productFunctions = [
+    'create_product(text, text, numeric, text, text, text)',
+    'update_product(uuid, text, text, numeric, text)',
+    'set_product_translation(uuid, text, text)',
+    'remove_product_translation(uuid, text)',
+    'set_product_status(uuid, text)',
+    'search_products(text, text, int)',
+  ]
+
+  it('anon mag geen enkele productfunctie aanroepen', async () => {
+    await withTx(async (tx) => {
+      for (const fn of productFunctions) {
+        const [row] = await tx<{ anon: boolean; auth: boolean }[]>`
+          select
+            has_function_privilege('anon', ${fn}, 'execute') as anon,
+            has_function_privilege('authenticated', ${fn}, 'execute') as auth
+        `
+        expect(row!.anon, `anon op ${fn}`).toBe(false)
+        expect(row!.auth, `authenticated op ${fn}`).toBe(true)
+      }
+    })
+  })
+
+  // mag_product_bewerken is geen triggerfunctie — hij wordt door de andere
+  // security-definer-functies aangeroepen, niet door een trigger — maar de
+  // intrekking is even strikt en om een eigen reden: het is de gedeelde
+  // autorisatiecheck van de productcatalogus en hoort alleen van bínnen die
+  // functies aangeroepen te worden, nooit rechtstreeks. Anders dan bij
+  // productFunctions hierboven hoort `authenticated` hier óók false te zijn:
+  // er is geen legitieme rechtstreekse aanroeper. Vandaar een losse test in
+  // plaats van meeliften op triggerFunctions hieronder: dit is geen
+  // triggerfunctie, en zonder deze regel zou een latere
+  // `grant execute ... to authenticated` — precies de aanpassing die iemand
+  // maakt die de functie "gewoon" op zijn vijf siblings wil laten lijken —
+  // ongemerkt voorbijgaan.
+  it('niemand mag mag_product_bewerken rechtstreeks aanroepen', async () => {
+    await withTx(async (tx) => {
+      const [row] = await tx<{ anon: boolean; auth: boolean }[]>`
+        select
+          has_function_privilege('anon', 'mag_product_bewerken(uuid)', 'execute') as anon,
+          has_function_privilege('authenticated', 'mag_product_bewerken(uuid)', 'execute') as auth
+      `
+      expect(row!.anon, 'anon op mag_product_bewerken').toBe(false)
+      expect(row!.auth, 'authenticated op mag_product_bewerken').toBe(false)
+    })
+  })
+
   // Triggerfuncties horen door niemand rechtstreeks aangeroepen te worden.
   // PostgREST publiceert ze ook niet — functies die `trigger` teruggeven komen
   // niet in de schemacache, dus er is geen route naartoe (geverifieerd tegen
@@ -235,6 +288,7 @@ describe('rechten', () => {
       'handle_new_user()',
       'prevent_last_owner_removal()',
       'protect_profile_privileges()',
+      'prevent_last_translation_removal()',
     ]
 
     await withTx(async (tx) => {

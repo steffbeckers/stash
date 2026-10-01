@@ -40,10 +40,12 @@ if (user.value) {
 // Alleen inhoudelijke routes. Instellingen en uitloggen zitten in het
 // avatarmenu — dat is het gangbare patroon, en het is de ruimte die de
 // header op 360px in het Frans overeind houdt. Gemeten: mét "Paramètres"
-// hier bleef er 16px over, zonder ruim 100px. De catalogus komt hier straks
-// bij.
+// hier bleef er 16px over, zonder ruim 100px. De catalogus staat er nu ook
+// bij; de veegtest in e2e/mobile.spec.ts (360px, alle talen) bewaakt of
+// "Produits" nog past.
 const navItems = computed(() => [
   { label: t('nav.inventory'), to: localePath('inventory') },
+  { label: t('products.title'), to: localePath('products') },
 ])
 </script>
 

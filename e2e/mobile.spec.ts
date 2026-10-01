@@ -11,6 +11,7 @@ test.use({ viewport: { width: 360, height: 740 } })
 const uitzonderingen: Partial<Record<RouteKey, string>> = {
   'confirm': 'stuurt meteen door zodra de sessie er is; geen stabiele pagina om te meten',
   'invite/[token]': 'heeft een echt token nodig en wordt gedekt door invite.spec.ts',
+  'products/[id]': 'heeft een echt product-id nodig; wordt gedekt door e2e/products.spec.ts',
 }
 
 const teMeten = (Object.keys(routePaths) as RouteKey[]).filter((route) => !(route in uitzonderingen))
@@ -155,5 +156,12 @@ test('bediening staat gestapeld op 360px in plaats van samengedrukt', async ({ p
     linkveld,
     page.getByRole('button', { name: bundles.en.invite.copy }),
     'uitnodigingskaart',
+  )
+
+  await page.goto(routePath('products/new', 'en'))
+  await verwachtGestapeld(
+    page.getByLabel(bundles.en.products.netContent),
+    page.getByLabel(bundles.en.products.unit),
+    'inhoud-en-eenheid',
   )
 })
