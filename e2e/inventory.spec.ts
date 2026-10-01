@@ -18,6 +18,27 @@ function datumOver(dagen: number): string {
   return `${d.getFullYear()}-${maand}-${dag}`
 }
 
+/**
+ * De datum over `dagen` dagen zoals de app hem toont: "Oct 6", en met jaartal
+ * als dat niet het lopende jaar is. Bewust opnieuw opgebouwd in plaats van
+ * formatDatum() te importeren, om dezelfde reden als datumOver().
+ */
+function kort(dagen: number): string {
+  const datum = datumOver(dagen)
+  const zelfdeJaar = datum.slice(0, 4) === datumOver(0).slice(0, 4)
+  return new Intl.DateTimeFormat('en', {
+    day: 'numeric',
+    month: 'short',
+    ...(zelfdeJaar ? {} : { year: 'numeric' }),
+    timeZone: 'UTC',
+  }).format(new Date(`${datum}T00:00:00Z`))
+}
+
+/** Een regex die "Oct 2" niet laat samenvallen met "Oct 25". */
+function datumRegex(voorvoegsel: string, dagen: number): RegExp {
+  return new RegExp(`${voorvoegsel}${kort(dagen)}(?!\\d)`)
+}
+
 function tekst(sjabloon: string, waarden: Record<string, string | number>): string {
   return Object.entries(waarden).reduce((t, [k, v]) => t.replace(`{${k}}`, String(v)), sjabloon)
 }
@@ -118,6 +139,10 @@ test('bij verschillende vervaldatums vraagt afstrepen welke', async ({ page }) =
 
   const keuzes = page.getByRole('radio')
   await expect(keuzes).toHaveCount(2)
+  // De vroegste vervaldatum staat bovenaan, en alleen daarmee is "nth(0)"
+  // hieronder de variant die we bedoelen.
+  await expect(keuzes.nth(0)).toHaveAccessibleName(datumRegex('', 5))
+  await expect(keuzes.nth(1)).toHaveAccessibleName(datumRegex('', 20))
   await expect(keuzes.nth(0)).not.toBeChecked()
   await expect(keuzes.nth(1)).not.toBeChecked()
   const opgemaakt = page.getByRole('button', { name: en.inventory.consumed })
@@ -139,5 +164,55 @@ test('bij verschillende vervaldatums vraagt afstrepen welke', async ({ page }) =
   await expect(opgemaakt).toBeEnabled()
   await opgemaakt.click()
 
+  // Niet alleen "×1": dat is zo ook als de verkeerde variant wegging. De
+  // vroegste datum die overblijft, bewijst welke het was.
+  const over = groep(page, 'Pantry', naam)
+  await expect(over).toContainText('×1')
+  await expect(over).toContainText(datumRegex('Expires ', 20))
+  await expect(over).not.toContainText(datumRegex('Expires ', 5))
+})
+
+test('een item bewerken bewaart de nieuwe vervaldatum', async ({ page }) => {
+  const naam = `Melk${Date.now()}`
+  await signIn(page, `voorraad-bewerken-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Bea', huishouden: 'Bewerkhuis' })
+  await voegToe(page, { plaats: 'Fridge', naam, nieuw: true, vervaldatum: datumOver(5) })
+
+  const g = groep(page, 'Fridge', naam)
+  await g.getByRole('button', { name: new RegExp(naam) }).first().click()
+  await g.getByRole('button', { name: en.inventory.edit, exact: true }).click()
+  await g.getByLabel(en.inventory.expiresAt).fill(datumOver(12))
+  await g.getByRole('button', { name: en.inventory.saveItem, exact: true }).click()
+  await expect(g.getByRole('button', { name: en.inventory.edit, exact: true })).toBeVisible()
+
+  // Opnieuw laden: het scherm bewijst niets over de database.
+  await page.reload()
+  await expect(groep(page, 'Fridge', naam)).toContainText(datumRegex('Expires ', 12))
+  await expect(groep(page, 'Fridge', naam)).not.toContainText(datumRegex('Expires ', 5))
+})
+
+test('verwijderen vraagt eerst bevestiging en laat geen ongedaan maken toe', async ({ page }) => {
+  const naam = `Eieren${Date.now()}`
+  await signIn(page, `voorraad-verwijderen-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Dirk', huishouden: 'Verwijderhuis' })
+  await voegToe(page, { plaats: 'Pantry', naam, nieuw: true, aantal: 2 })
+
+  const g = groep(page, 'Pantry', naam)
+  await expect(g).toContainText('×2')
+  await g.getByRole('button', { name: new RegExp(naam) }).first().click()
+  await g.getByRole('button', { name: en.inventory.delete, exact: true }).first().click()
+
+  const dialoog = page.getByRole('dialog')
+  await expect(dialoog).toBeVisible()
+  // Nog niets verwijderd zolang er niet bevestigd is. De dialoog verbergt de
+  // rest van de pagina voor getByRole, dus hier een CSS-locator.
+  await expect(page.locator('section li').filter({ hasText: naam }).first()).toContainText('×2')
+
+  await dialoog.getByRole('button', { name: en.inventory.delete, exact: true }).click()
+  await expect(g).toContainText('×1')
+  // Verwijderen is geen afstrepen: er is niets om ongedaan te maken.
+  await expect(page.getByRole('button', { name: en.inventory.undo })).toHaveCount(0)
+
+  await page.reload()
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
 })

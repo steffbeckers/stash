@@ -29,6 +29,9 @@ function variantLabel(v: Variant): string {
 }
 
 function kies(reden: Reden) {
+  // Tijdens de sluitanimatie staan de knoppen er nog: een tweede klik zou
+  // een tweede close() geven en een onterechte "al afgestreept"-melding.
+  if (!open.value) return
   const v = variant.value
   if (!v) return
   // items[0] is de oudste: bij uitwisselbare items maakt de keuze niets uit,
