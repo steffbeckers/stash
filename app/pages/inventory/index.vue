@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { groepeerPerPlaats, lokaleDatum, vervaltBinnenkort, type Bewaarplaats, type VoorraadItem } from '~/utils/voorraad'
+import {
+  groepeerPerPlaats,
+  isSamenhangFout,
+  lokaleDatum,
+  vervaltBinnenkort,
+  type Bewaarplaats,
+  type Reden,
+  type VoorraadItem,
+} from '~/utils/voorraad'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
 const { households, activeId, refresh } = useHousehold()
-const { load, loadPlaces } = useInventory()
+const toast = useToast()
+const { load, loadPlaces, close, reopen } = useInventory()
 
 const ready = ref(false)
 const failed = ref(false)
@@ -20,6 +29,49 @@ async function laad(): Promise<void> {
   items.value = i
   plaatsen.value = p
   vandaag.value = lokaleDatum(new Date())
+}
+
+async function herlaad(): Promise<void> {
+  try {
+    await laad()
+  } catch {
+    failed.value = true
+  }
+}
+
+// Hier en niet in InventoryGroup: de toast leeft langer dan de groep. Wie het
+// laatste item van een product afstreept, ziet de groep verdwijnen, en een
+// onClick die daarnaar terugwijst zou na het ongedaan maken niets meer
+// verversen.
+async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<void> {
+  try {
+    const gelukt = await close(itemId, reden)
+    if (gelukt) {
+      toast.add({
+        title: t('inventory.closed', { name: naam }),
+        actions: [{ label: t('inventory.undo'), onClick: () => { void ongedaanMaken(itemId) } }],
+      })
+    } else {
+      toast.add({ title: t('inventory.alreadyClosed'), color: 'warning' })
+    }
+  } catch {
+    toast.add({ title: t('householdSettings.error'), color: 'error' })
+  }
+  await herlaad()
+}
+
+async function ongedaanMaken(itemId: string): Promise<void> {
+  try {
+    // false: iemand anders zette het al terug. Herladen toont dan gewoon de
+    // juiste stand; er is niets te melden.
+    await reopen(itemId)
+  } catch (oorzaak) {
+    toast.add({
+      title: isSamenhangFout(oorzaak) ? t('inventory.cannotUndo') : t('householdSettings.error'),
+      color: 'error',
+    })
+  }
+  await herlaad()
 }
 
 // In onMounted, niet op top-level await: activeId komt uit localStorage en is
@@ -72,8 +124,11 @@ const binnenkort = computed(() => vervaltBinnenkort(items.value, vandaag.value))
           v-for="plaats in plaatsen"
           :key="plaats.id"
           :plaats="plaats"
+          :plaatsen="plaatsen"
           :groepen="perPlaats.get(plaats.id) ?? []"
           :vandaag="vandaag"
+          @afstrepen="afstrepen"
+          @changed="herlaad"
         />
       </div>
     </template>

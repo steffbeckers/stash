@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import type { Bewaarplaats, Productgroep } from '~/utils/voorraad'
+import type { Bewaarplaats, Productgroep, Reden } from '~/utils/voorraad'
 
-const props = defineProps<{ plaats: Bewaarplaats; groepen: Productgroep[]; vandaag: string }>()
+const props = defineProps<{
+  plaats: Bewaarplaats
+  plaatsen: Bewaarplaats[]
+  groepen: Productgroep[]
+  vandaag: string
+}>()
+const emit = defineEmits<{ afstrepen: [itemId: string, naam: string, reden: Reden]; changed: [] }>()
 const { t } = useI18n()
 const localePath = useLocalePath()
 
@@ -27,7 +33,15 @@ const toevoegpad = computed(() => ({ path: localePath('inventory-new'), query: {
     </div>
     <p v-if="groepen.length === 0" class="mt-2 text-sm text-muted">{{ t('inventory.placeEmpty') }}</p>
     <ul v-else class="mt-2 divide-y divide-default">
-      <InventoryGroup v-for="groep in groepen" :key="groep.productId" :groep="groep" :vandaag="vandaag" />
+      <InventoryGroup
+        v-for="groep in groepen"
+        :key="groep.productId"
+        :groep="groep"
+        :plaatsen="plaatsen"
+        :vandaag="vandaag"
+        @afstrepen="(id, naam, reden) => emit('afstrepen', id, naam, reden)"
+        @changed="emit('changed')"
+      />
     </ul>
   </section>
 </template>
