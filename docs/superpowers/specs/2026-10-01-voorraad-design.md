@@ -391,7 +391,7 @@ en de review loopt die stappen na.
 | `anon` kan niets | Geen enkel tabelrecht op `inventory_item`, geen `execute` op `voorraad` of `product_weergavenaam`. Getoetst met `has_table_privilege` en `has_function_privilege`, zoals de bestaande tests. | de revokes |
 | Alleen `in_stock` in de lijst | `voorraad()` laat afgestreepte items weg. | de `status`-filter |
 | Een niet-lid ziet niets | `voorraad(A)` door een buitenstaander geeft een lege lijst; door een lid niet. | — invoker is de bewaking; falsificatie: de functie op `security definer` zetten, dan moet hij rood |
-| Terugvalketen | Een product met alleen een Engelse naam geeft voor `nl` de Engelse naam **en** `en` als getoonde taal; met een Nederlandse naam erbij de Nederlandse. | de `en`-tak in `product_weergavenaam` |
+| Terugvalketen | Een product met een Nederlandse en een Engelse naam geeft voor `nl` de Nederlandse naam **en** `nl` als getoonde taal. Een product met alleen een Engelse naam geeft voor `nl` de Engelse, met `en`. | de voorkeurstak in `product_weergavenaam` — moet ook de bestaande zoektest rood maken. De `en`-tak is niet te falsifiëren: bij `en`, `fr` en `nl` sorteert `en` alfabetisch toch al eerst (zie de bevindingen). |
 | Afstrepen is idempotent | Een tweede `update … where status = 'in_stock'` op hetzelfde item raakt nul rijen en laat de eerste stempels staan. | het `status`-filter in de update |
 
 De refactor van `search_products` heeft geen eigen falsificatie: zijn

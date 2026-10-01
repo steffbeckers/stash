@@ -74,6 +74,37 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"inventory_item": {
+                  Row: {
+                    "acquired_at": string,"amount": number,"closed_at": string | null,"closed_by": string | null,"closed_reason": string | null,"created_at": string,"expires_at": string | null,"household_id": string,"id": string,"product_id": string,"status": string,"storage_place_id": string | null,"unit": string
+                  }
+                  Insert: {
+                    "acquired_at"?: string,"amount"?: number,"closed_at"?: string | null,"closed_by"?: string | null,"closed_reason"?: string | null,"created_at"?: string,"expires_at"?: string | null,"household_id": string,"id"?: string,"product_id": string,"status"?: string,"storage_place_id"?: string | null,"unit"?: string
+                  }
+                  Update: {
+                    "acquired_at"?: string,"amount"?: number,"closed_at"?: string | null,"closed_by"?: string | null,"closed_reason"?: string | null,"created_at"?: string,"expires_at"?: string | null,"household_id"?: string,"id"?: string,"product_id"?: string,"status"?: string,"storage_place_id"?: string | null,"unit"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "inventory_item_household_id_fkey"
+      columns: ["household_id"]
+isOneToOne: false
+      referencedRelation: "household"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "inventory_item_plaats_van_huishouden"
+      columns: ["household_id","storage_place_id"]
+isOneToOne: false
+      referencedRelation: "storage_place"
+      referencedColumns: ["household_id","id"]
+    },{
+      foreignKeyName: "inventory_item_product_id_fkey"
+      columns: ["product_id"]
+isOneToOne: false
+      referencedRelation: "product"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"product": {
                   Row: {
                     "brand": string | null,"created_at": string,"created_by": string | null,"gtin": string | null,"id": string,"net_content": number | null,"status": string,"unit": string | null
@@ -165,6 +196,11 @@ isOneToOne: false
 "mag_product_bewerken":
 { Args: { "target_product": string }; Returns: boolean
                            },
+"product_weergavenaam":
+{ Args: { "target_product": string,"voorkeurstaal": string }; Returns: {
+              "weergavenaam": string,"weergavetaal": string
+            }[]
+                           },
 "remove_product_translation":
 { Args: { "locale": string,"target_product": string }; Returns: undefined
                            },
@@ -184,6 +220,11 @@ isOneToOne: false
                            },
 "update_product":
 { Args: { "brand": string,"gtin": string,"net_content": number,"target_product": string,"unit": string }; Returns: undefined
+                           },
+"voorraad":
+{ Args: { "target_household": string,"voorkeurstaal"?: string }; Returns: {
+              "acquired_at": string,"amount": number,"created_at": string,"expires_at": string,"getoonde_taal": string,"id": string,"merk": string,"naam": string,"net_content": number,"product_id": string,"product_unit": string,"storage_place_id": string,"unit": string
+            }[]
                            }
           }
           Enums: {
@@ -311,4 +352,3 @@ export const Constants = {
           }
         }
 } as const
-
