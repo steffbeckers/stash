@@ -200,12 +200,19 @@ op de items. Voert Postgres die `set null` uit op een `in_stock`-item voordat
 het item zelf via de andere cascade weg is, dan faalt de check en faalt het
 opheffen.
 
-Of dat gebeurt, is niet vooraf bekend; een test meet het (§8). Staat die
-rood, dan is het **ontwerp** fout en niet de test. De terugvaloptie: de
-plaats-eis gaat uit de samenhangcheck, en een `before delete`-trigger op
-`storage_place` weigert zolang er `in_stock`-items in liggen — behalve
-wanneer het huishouden zelf al weg is, met dezelfde bestaanscontrole als
-`prevent_last_translation_removal` gebruikt om een cascade te herkennen.
+**Gemeten, vóór het implementatieplan:** het opheffen slaagt. Een
+teruggerolde spike tegen Postgres 17 deed het in beide aanmaakvolgordes van
+de foreign keys; de `set null` op de items vuurt pas nadat de cascade vanaf
+`household` de items al verwijderd heeft. De test `een huishouden met
+voorraad in meerdere plaatsen opheffen lukt` in `test/db/inventory.test.ts`
+houdt dat zo.
+
+De terugvaloptie die hier eerder stond — de plaats-eis uit de check halen en
+een `before delete`-trigger op `storage_place` — is daarmee niet nodig, en
+had een gat: een samengestelde FK met een `null`-kolom wordt onder `MATCH
+SIMPLE` niet gecontroleerd, dus zonder de plaats-eis in de check kon een lid
+`storage_place_id` van een `in_stock`-item gewoon op `null` zetten. Valt de
+test ooit om, dan moet de vervanger ook dát afdekken.
 
 ## 5. Leespad
 
