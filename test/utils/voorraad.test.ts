@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import {
+  formatDatum,
   groepeerPerPlaats,
   groepslabel,
   isSamenhangFout,
@@ -10,6 +11,12 @@ import {
   vervaltBinnenkort,
   type VoorraadItem,
 } from '../../app/utils/voorraad'
+
+// Tests die de tijdzone stubben, geven hem hier weer terug: niets lekt door
+// naar de andere tests in dit bestand.
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 let teller = 0
 // created_at loopt op met elke aanroep, zodat "oudste eerst" iets betekent.
@@ -32,11 +39,12 @@ function item(over: Partial<VoorraadItem> = {}): VoorraadItem {
 }
 
 describe('datums', () => {
-  // Om 00:30 lokale tijd is het in UTC nog gisteren (in België, UTC+1/+2).
-  // Een implementatie op toISOString() geeft dan de verkeerde dag. Rood
-  // worden doet dat alleen op een machine met een tijdzone ten oosten van
-  // UTC; in CI (UTC) slaagt ook de foute variant.
+  // Tokio is UTC+9: om 00:30 lokale tijd is het in UTC nog gisteren. Een
+  // implementatie op toISOString() geeft dan de verkeerde dag. De test zet
+  // de tijdzone zelf, dus hij wordt op elke machine rood bij die fout,
+  // ook in CI (UTC).
   it('lokaleDatum geeft de dag van het toestel, niet die van UTC', () => {
+    vi.stubEnv('TZ', 'Asia/Tokyo')
     expect(lokaleDatum(new Date(2026, 9, 1, 0, 30))).toBe('2026-10-01')
   })
 
@@ -87,6 +95,14 @@ describe('varianten', () => {
     expect(v.length).toBe(2)
   })
 
+  it('zelfde datum en hoeveelheid maar een andere eenheid is een andere variant', () => {
+    const v = varianten([
+      item({ expiresAt: '2026-10-10', amount: 1, unit: 'g' }),
+      item({ expiresAt: '2026-10-10', amount: 1, unit: 'kg' }),
+    ])
+    expect(v.length).toBe(2)
+  })
+
   it('sorteert de vroegste datum eerst en zonder datum achteraan', () => {
     const v = varianten([
       item({ expiresAt: null }),
@@ -129,6 +145,44 @@ describe('groepslabel', () => {
       item({ amount: 0.684, unit: 'kg' }),
       item({ amount: 0.5, unit: 'kg' }),
     ])).toEqual({ soort: 'totaal', totalen: [{ unit: 'kg', amount: 1.184 }] })
+  })
+
+  // Eén kilo is geen "×1": de eenheid telt mee.
+  it('een enkele hoeveelheid in een gewichtseenheid is een totaal, geen aantal', () => {
+    expect(groepslabel([item({ amount: 1, unit: 'kg' })]))
+      .toEqual({ soort: 'totaal', totalen: [{ unit: 'kg', amount: 1 }] })
+  })
+
+  // Twee stuks in één item is geen "×1": de hoeveelheid telt mee.
+  it('een item van 2 stuks is een totaal, geen aantal', () => {
+    expect(groepslabel([item({ amount: 2, unit: 'stuk' })]))
+      .toEqual({ soort: 'totaal', totalen: [{ unit: 'stuk', amount: 2 }] })
+  })
+
+  it('houdt een totaal per eenheid, in de volgorde van EENHEDEN', () => {
+    expect(groepslabel([
+      item({ amount: 0.5, unit: 'kg' }),
+      item({ amount: 1, unit: 'stuk' }),
+    ])).toEqual({
+      soort: 'totaal',
+      totalen: [{ unit: 'stuk', amount: 1 }, { unit: 'kg', amount: 0.5 }],
+    })
+  })
+})
+
+describe('formatDatum', () => {
+  // Op inhoud, niet op de exacte tekst: de leestekens verschillen per ICU.
+  it('laat het jaar weg binnen het lopende jaar', () => {
+    // Een negatieve UTC-offset: zonder timeZone: 'UTC' wordt dit "2 okt".
+    vi.stubEnv('TZ', 'America/New_York')
+    const tekst = formatDatum('2026-10-03', 'nl', '2026-10-01')
+    expect(tekst).toContain('3')
+    expect(tekst).toContain('okt')
+    expect(tekst).not.toContain('2026')
+  })
+
+  it('toont het jaar buiten het lopende jaar', () => {
+    expect(formatDatum('2027-03-05', 'nl', '2026-10-01')).toContain('2027')
   })
 })
 
