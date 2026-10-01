@@ -554,3 +554,100 @@ describe('inventory_item: rechten', () => {
     })
   })
 })
+
+describe('inventory_item: afstrepen', () => {
+  beforeEach(resetDb)
+
+  it('afstrepen vult zelf in wie en wanneer', async () => {
+    const eigenaar = await createUser('afstreper@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const item = await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      const [r] = await tx<{ closed_by: string | null; closed_at: Date | null; closed_reason: string }[]>`
+        update inventory_item set status = 'closed', closed_reason = 'discarded'
+         where id = ${item}
+        returning closed_by, closed_at, closed_reason
+      `
+      expect(r!.closed_by).toBe(eigenaar)
+      expect(r!.closed_at).not.toBeNull()
+      expect(r!.closed_reason).toBe('discarded')
+    })
+  })
+
+  it('ongedaan maken wist alle drie de afstreepvelden', async () => {
+    const eigenaar = await createUser('ongedaan@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const item = await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      await tx`update inventory_item set status = 'closed', closed_reason = 'consumed' where id = ${item}`
+      const [r] = await tx<{ status: string; closed_by: string | null; closed_at: Date | null; closed_reason: string | null }[]>`
+        update inventory_item set status = 'in_stock' where id = ${item}
+        returning status, closed_by, closed_at, closed_reason
+      `
+      expect(r).toEqual({ status: 'in_stock', closed_by: null, closed_at: null, closed_reason: null })
+    })
+  })
+
+  // Spec §3: een referentiële actie is ook een update en vuurt de trigger.
+  // Een trigger die bij closed -> closed "voor de zekerheid" de oude stempels
+  // terugzet, draait de on delete set null van auth.users stil terug.
+  it('een verwijderd account verliest zijn toeschrijving, de afstreping blijft', async () => {
+    const eigenaar = await createUser('blijft@example.com')
+    const lid = await createUser('vertrekt@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      await voegLidToe(tx, hh.id, lid)
+      const item = await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+
+      await actAs(tx, lid)
+      await enableRls(tx)
+      await tx`update inventory_item set status = 'closed', closed_reason = 'consumed' where id = ${item}`
+
+      await tx`reset role`
+      await tx`delete from auth.users where id = ${lid}`
+
+      const [r] = await tx<{ status: string; closed_by: string | null }[]>`
+        select status, closed_by from inventory_item where id = ${item}
+      `
+      expect(r).toEqual({ status: 'closed', closed_by: null })
+    })
+  })
+
+  // Spec §7. Het filter op status in de tweede update is precies wat
+  // useInventory.close() meestuurt; deze test bewijst het mechanisme, de
+  // review bewaakt dat useInventory het gebruikt (e2e kan geen twee toestellen
+  // tegelijk laten tikken).
+  it('afstrepen is idempotent: wie te laat is, raakt niets', async () => {
+    const eigenaar = await createUser('eerst@example.com')
+    const lid = await createUser('te-laat@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      await voegLidToe(tx, hh.id, lid)
+      const item = await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await enableRls(tx)
+
+      await actAs(tx, eigenaar)
+      await tx`
+        update inventory_item set status = 'closed', closed_reason = 'consumed'
+         where id = ${item} and status = 'in_stock'
+      `
+
+      await actAs(tx, lid)
+      const tweede = await tx`
+        update inventory_item set status = 'closed', closed_reason = 'discarded'
+         where id = ${item} and status = 'in_stock'
+        returning id
+      `
+      expect(tweede.length).toBe(0)
+
+      const [r] = await tx<{ closed_by: string; closed_reason: string }[]>`
+        select closed_by, closed_reason from inventory_item where id = ${item}
+      `
+      expect(r).toEqual({ closed_by: eigenaar, closed_reason: 'consumed' })
+    })
+  })
+})

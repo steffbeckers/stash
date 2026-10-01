@@ -289,6 +289,7 @@ describe('rechten', () => {
       'prevent_last_owner_removal()',
       'protect_profile_privileges()',
       'prevent_last_translation_removal()',
+      'stamp_inventory_item_closure()',
     ]
 
     await withTx(async (tx) => {
