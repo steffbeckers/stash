@@ -39,7 +39,7 @@ async function verwachtGeenOverflow(page: Page, pad: string): Promise<void> {
   // voor headeralleen-pagina's.
   await waitForHydration(page, 'header button')
 
-  // Een pagina kan ook pas ná hydratie doorsturen — app/pages/inventory.vue
+  // Een pagina kan ook pas ná hydratie doorsturen — app/pages/inventory/index.vue
   // doet dat al in zijn eigen onMounted zodra er geen huishouden is. Zonder
   // deze herhaalde controle zou zo'n pagina hierboven op haar oorspronkelijke
   // URL goedgekeurd worden en hieronder alsnog op het doel van de redirect
