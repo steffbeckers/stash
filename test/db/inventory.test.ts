@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { withTx, actAs, createUser, resetDb, type Sql } from './helpers'
+import { withTx, actAs, enableRls, createUser, resetDb, type Sql } from './helpers'
 
 // Hulpjes voor de hele voorraadsuite. Ze zaaien als superuser; wie daarna RLS
 // aanzet met enableRls(), moet `reset role` doen vóór hij nog iets zaait.
@@ -46,6 +46,14 @@ async function sluitAf(tx: Sql, item: string): Promise<void> {
     update inventory_item
        set status = 'closed', closed_at = now(), closed_reason = 'consumed'
      where id = ${item}
+  `
+}
+
+/** Maakt iemand lid van een bestaand huishouden, zonder de uitnodigingsflow. */
+async function voegLidToe(tx: Sql, huishouden: string, lid: string): Promise<void> {
+  await tx`
+    insert into household_member (household_id, user_id, role)
+    values (${huishouden}, ${lid}, 'member')
   `
 }
 
@@ -290,6 +298,259 @@ describe('inventory_item: schema', () => {
       expect(rows.length).toBe(0)
       const plaatsen = await tx`select 1 from storage_place where household_id = ${hh.id}`
       expect(plaatsen.length).toBe(0)
+    })
+  })
+})
+
+describe('inventory_item: rechten', () => {
+  beforeEach(resetDb)
+
+  it('een lid ziet de voorraad van zijn huishouden, een buitenstaander niet', async () => {
+    const eigenaar = await createUser('ziet@example.com')
+    const vreemde = await createUser('ziet-niet@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      expect((await tx`select id from inventory_item`).length).toBe(1)
+
+      await actAs(tx, vreemde)
+      expect((await tx`select id from inventory_item`).length).toBe(0)
+    })
+  })
+
+  it('een lid mag voorraad toevoegen', async () => {
+    const eigenaar = await createUser('voegt-toe@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      await tx`
+        insert into inventory_item (household_id, product_id, storage_place_id)
+        values (${hh.id}, ${p}, ${hh.plaats('pantry')})
+      `
+      await tx`reset role`
+      expect((await tx`select 1 from inventory_item`).length).toBe(1)
+    })
+  })
+
+  it('een buitenstaander kan geen voorraad toevoegen aan andermans huishouden', async () => {
+    const eigenaar = await createUser('eigenaar-toevoegen@example.com')
+    const vreemde = await createUser('vreemde-toevoegen@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      await actAs(tx, vreemde)
+      await enableRls(tx)
+      const e = await fout(
+        tx.savepoint((sp) => sp`
+          insert into inventory_item (household_id, product_id, storage_place_id)
+          values (${hh.id}, ${p}, ${hh.plaats('pantry')})
+        `),
+      )
+      expect(String(e)).toMatch(/row-level security/)
+    })
+  })
+
+  it('een lid mag zijn voorraad wijzigen', async () => {
+    const eigenaar = await createUser('wijzigt@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const item = await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      const rows = await tx`
+        update inventory_item set expires_at = '2030-01-01' where id = ${item} returning id
+      `
+      expect(rows.length).toBe(1)
+    })
+  })
+
+  // Kaal, zonder where en returning: zie de Global Constraints van het plan
+  // en test/db/storage-place.test.ts.
+  it('een buitenstaander kan andermans voorraad niet overschrijven', async () => {
+    const eigenaar = await createUser('eigenaar-overschrijf@example.com')
+    const vreemde = await createUser('vreemde-overschrijf@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await actAs(tx, vreemde)
+      await enableRls(tx)
+      await tx`update inventory_item set expires_at = '2000-01-01'`
+      await tx`reset role`
+      const [r] = await tx<{ expires_at: string | null }[]>`select expires_at from inventory_item`
+      expect(r!.expires_at).toBeNull()
+    })
+  })
+
+  it('een lid mag voorraad verwijderen', async () => {
+    const eigenaar = await createUser('verwijdert@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const item = await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      const rows = await tx`delete from inventory_item where id = ${item} returning id`
+      expect(rows.length).toBe(1)
+    })
+  })
+
+  it('een buitenstaander kan andermans voorraad niet leegvegen', async () => {
+    const eigenaar = await createUser('eigenaar-veeg@example.com')
+    const vreemde = await createUser('vreemde-veeg@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await actAs(tx, vreemde)
+      await enableRls(tx)
+      await tx`delete from inventory_item`
+      await tx`reset role`
+      expect((await tx`select 1 from inventory_item`).length).toBe(1)
+    })
+  })
+
+  // De aanvaller is lid van béide huishoudens, zodat RLS hem niet al
+  // tegenhoudt. Anders bewijst deze test niets over de FK (spec §9, punt 2).
+  it('ook wie lid is van beide huishoudens kan geen plaats van het ene aan het andere geven', async () => {
+    const l = await createUser('beide@example.com')
+    const b = await createUser('alleen-b@example.com')
+    await withTx(async (tx) => {
+      const ha = await maakHuishouden(tx, l, 'A')
+      const hb = await maakHuishouden(tx, b, 'B')
+      await voegLidToe(tx, hb.id, l)
+      const p = await maakProduct(tx)
+      const item = await maakItem(tx, ha.id, p, ha.plaats('pantry'))
+
+      await actAs(tx, l)
+      await enableRls(tx)
+
+      // De positieve kant: in B met een plaats van B mag het wél.
+      await tx`
+        insert into inventory_item (household_id, product_id, storage_place_id)
+        values (${hb.id}, ${p}, ${hb.plaats('pantry')})
+      `
+
+      const bijInsert = await fout(
+        tx.savepoint((sp) => sp`
+          insert into inventory_item (household_id, product_id, storage_place_id)
+          values (${ha.id}, ${p}, ${hb.plaats('pantry')})
+        `),
+      )
+      expect(bijInsert).toMatchObject({ code: '23503', constraint_name: 'inventory_item_plaats_van_huishouden' })
+
+      const bijUpdate = await fout(
+        tx.savepoint((sp) => sp`
+          update inventory_item set storage_place_id = ${hb.plaats('pantry')} where id = ${item}
+        `),
+      )
+      expect(bijUpdate).toMatchObject({ code: '23503', constraint_name: 'inventory_item_plaats_van_huishouden' })
+    })
+  })
+
+  // Plaats én huishouden worden samen verzet, zodat de FK klopt en de RLS-
+  // check op B slaagt: alleen het ontbrekende kolomrecht houdt dit tegen.
+  it('het huishouden van een item ligt vast, ook voor wie lid is van beide', async () => {
+    const l = await createUser('verhuis@example.com')
+    const b = await createUser('verhuis-b@example.com')
+    await withTx(async (tx) => {
+      const ha = await maakHuishouden(tx, l, 'A')
+      const hb = await maakHuishouden(tx, b, 'B')
+      await voegLidToe(tx, hb.id, l)
+      const item = await maakItem(tx, ha.id, await maakProduct(tx), ha.plaats('pantry'))
+
+      await actAs(tx, l)
+      await enableRls(tx)
+      const e = await fout(
+        tx.savepoint((sp) => sp`
+          update inventory_item
+             set household_id = ${hb.id}, storage_place_id = ${hb.plaats('pantry')}
+           where id = ${item}
+        `),
+      )
+      expect(String(e)).toMatch(/permission denied/)
+    })
+  })
+
+  // Een volledig geldige afgestreepte rij, zodat de samenhangcheck haar níet
+  // tegenhoudt: alleen het ontbrekende insert-recht op status doet dat.
+  it('een item begint altijd in voorraad', async () => {
+    const eigenaar = await createUser('begint@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      const e = await fout(
+        tx.savepoint((sp) => sp`
+          insert into inventory_item (household_id, product_id, storage_place_id, status, closed_at, closed_reason)
+          values (${hh.id}, ${p}, ${hh.plaats('pantry')}, 'closed', now(), 'consumed')
+        `),
+      )
+      expect(String(e)).toMatch(/permission denied/)
+    })
+  })
+
+  it('afstreepstempels zijn niet met de hand te zetten', async () => {
+    const eigenaar = await createUser('stempel@example.com')
+    const ander = await createUser('stempel-ander@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const item = await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await sluitAf(tx, item)
+
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      const opWie = await fout(
+        tx.savepoint((sp) => sp`update inventory_item set closed_by = ${ander} where id = ${item}`),
+      )
+      expect(String(opWie)).toMatch(/permission denied/)
+      const opWanneer = await fout(
+        tx.savepoint((sp) => sp`update inventory_item set closed_at = '2000-01-01' where id = ${item}`),
+      )
+      expect(String(opWanneer)).toMatch(/permission denied/)
+    })
+  })
+
+  // has_any_column_privilege: met rechten per kolom zegt has_table_privilege
+  // 'insert' ook voor authenticated false, en dan bewijst een false voor anon
+  // niets. Deze vraag is: kan anon aan ook maar één kolom?
+  it('anon heeft geen enkel recht op de voorraad', async () => {
+    await withTx(async (tx) => {
+      const [r] = await tx<Record<string, boolean>[]>`
+        select
+          has_any_column_privilege('anon', 'inventory_item', 'select') as anon_select,
+          has_any_column_privilege('anon', 'inventory_item', 'insert') as anon_insert,
+          has_any_column_privilege('anon', 'inventory_item', 'update') as anon_update,
+          has_table_privilege('anon', 'inventory_item', 'delete') as anon_delete,
+          has_table_privilege('authenticated', 'inventory_item', 'select') as auth_select,
+          has_column_privilege('authenticated', 'inventory_item', 'expires_at', 'update') as auth_update_vervaldatum,
+          has_column_privilege('authenticated', 'inventory_item', 'household_id', 'update') as auth_update_huishouden
+      `
+      expect(r).toEqual({
+        anon_select: false,
+        anon_insert: false,
+        anon_update: false,
+        anon_delete: false,
+        auth_select: true,
+        auth_update_vervaldatum: true,
+        auth_update_huishouden: false,
+      })
+    })
+  })
+
+  it('een eigenaar kan een huishouden met voorraad opheffen', async () => {
+    const eigenaar = await createUser('opheffen-rls@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      await maakItem(tx, hh.id, await maakProduct(tx), hh.plaats('pantry'))
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      await tx`delete from household where id = ${hh.id}`
+      await tx`reset role`
+      expect((await tx`select 1 from inventory_item`).length).toBe(0)
     })
   })
 })
