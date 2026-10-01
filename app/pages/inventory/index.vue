@@ -112,7 +112,11 @@ const binnenkort = computed(() => vervaltBinnenkort(items.value, vandaag.value))
 
       <InventoryExpiring v-if="binnenkort.length" class="mt-8" :items="binnenkort" :vandaag="vandaag" />
 
-      <p v-if="items.length === 0 && plaatsen.length > 0" class="mt-8 text-muted">{{ t('inventory.empty') }}</p>
+      <div v-if="items.length === 0 && plaatsen.length > 0" class="mt-8">
+        <p class="text-muted">{{ t('inventory.empty') }}</p>
+        <!-- Zonder ?plaats=: new.vue kiest dan de eerste plaats. -->
+        <UButton class="mt-4" icon="i-lucide-plus" :to="localePath('inventory-new')">{{ t('inventory.add') }}</UButton>
+      </div>
 
       <div v-if="plaatsen.length === 0" class="mt-8">
         <p class="text-muted">{{ t('inventory.noPlaces') }}</p>

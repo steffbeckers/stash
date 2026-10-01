@@ -44,12 +44,13 @@ function tekst(sjabloon: string, waarden: Record<string, string | number>): stri
 }
 
 /**
- * Voegt iets toe via de knop van een plaats op het startscherm.
- * `nieuw` maakt het product inline aan; anders wordt het gezocht en gekozen.
+ * Opent het toevoegformulier via de knop van een plaats op het startscherm en
+ * kiest het product. `nieuw` maakt het inline aan; anders wordt het gezocht en
+ * gekozen. Stopt vóór opslaan, voor tests die het formulier zelf bedienen.
  */
-async function voegToe(
+async function kiesProduct(
   page: Page,
-  opties: { plaats: string; naam: string; nieuw?: boolean; aantal?: number; vervaldatum?: string },
+  opties: { plaats: string; naam: string; nieuw?: boolean },
 ): Promise<void> {
   await page.goto(routePath('inventory', 'en'))
   await page.getByRole('link', { name: tekst(en.inventory.addTo, { place: opties.plaats }), exact: true }).click()
@@ -63,7 +64,17 @@ async function voegToe(
     // exact: de knop "Create "<naam>"" bevat de naam ook.
     await page.getByRole('button', { name: opties.naam, exact: true }).click()
   }
+}
 
+/**
+ * Voegt iets toe via de knop van een plaats op het startscherm en wacht tot
+ * de voorraad weer open is.
+ */
+async function voegToe(
+  page: Page,
+  opties: { plaats: string; naam: string; nieuw?: boolean; aantal?: number; vervaldatum?: string },
+): Promise<void> {
+  await kiesProduct(page, opties)
   if (opties.aantal) await page.getByLabel(en.inventory.count).fill(String(opties.aantal))
   if (opties.vervaldatum) await page.getByLabel(en.inventory.expiresAt).fill(opties.vervaldatum)
   await page.getByRole('button', { name: en.inventory.save }).click()
@@ -79,9 +90,16 @@ test('een nieuw product toevoegen zet het in de gekozen plaats', async ({ page }
   await signIn(page, `voorraad-toevoegen-${Date.now()}@example.com`)
   await createHousehold(page, { voornaam: 'Vic', huishouden: 'Voorraadhuis' })
 
+  // Spec §6: een leeg huishouden toont een Toevoegen-knop. exact: de knoppen
+  // per plaats heten "Add to Pantry" en dergelijke.
+  const toevoegen = page.getByRole('link', { name: en.inventory.add, exact: true })
+  await expect(toevoegen).toBeVisible()
+
   await voegToe(page, { plaats: 'Pantry', naam, nieuw: true, aantal: 3 })
 
   await expect(groep(page, 'Pantry', naam)).toContainText('×3')
+  // Alleen zichtbaar zolang er niets in voorraad is.
+  await expect(toevoegen).toHaveCount(0)
   // De andere helft: het staat niet ook in een andere plaats.
   await expect(page.getByRole('region', { name: 'Fridge' }).getByText(naam)).toHaveCount(0)
 })
@@ -239,4 +257,69 @@ test('een plaats met voorraad kan niet weg', async ({ page }) => {
 
   await page.reload()
   await expect(page.getByText(plaats)).toBeVisible()
+})
+
+test('twee keer indienen voegt maar één keer toe', async ({ page }) => {
+  const naam = `Linzen${Date.now()}`
+  await signIn(page, `voorraad-dubbel-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Fien', huishouden: 'Dubbelhuis' })
+
+  await kiesProduct(page, { plaats: 'Pantry', naam, nieuw: true })
+  await page.getByLabel(en.inventory.count).fill('3')
+  // Synchroon, binnen één evaluate: bezig wordt op true gezet vóór de eerste
+  // await in bewaar(), dus dit hangt niet van timing af.
+  await page.locator('form').evaluate((f: HTMLFormElement) => {
+    f.requestSubmit()
+    f.requestSubmit()
+  })
+  await expect(page).toHaveURL(routePath('inventory', 'en'))
+
+  // Herladen: het scherm bewijst niets over de database. Zonder guard: ×6.
+  await page.reload()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×3')
+})
+
+test('meer dan vijftig in één keer wordt geweigerd', async ({ page }) => {
+  const naam = `Blikjes${Date.now()}`
+  await signIn(page, `voorraad-maximum-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Gerd', huishouden: 'Maximumhuis' })
+
+  await kiesProduct(page, { plaats: 'Pantry', naam, nieuw: true })
+  await page.getByLabel(en.inventory.count).fill('51')
+  // Het veld heeft max={MAX_AANTAL}: de browser houdt een te hoog getal zelf
+  // al tegen, met een eigen tooltip, vóór bewaar() draait. Hier gaat het om de
+  // controle in bewaar() zelf, de tweede verdedigingslinie.
+  await page.locator('form').evaluate((f: HTMLFormElement) => {
+    f.noValidate = true
+  })
+  await page.getByRole('button', { name: en.inventory.save }).click()
+
+  await expect(page.getByText(tekst(en.inventory.countRange, { max: 50 }))).toBeVisible()
+  // Nog op het formulier; ?plaats= staat er nog achter.
+  await expect(page).toHaveURL(new RegExp(`${routePath('inventory/new', 'en')}(\\?|$)`))
+})
+
+test('wie te laat afstreept, krijgt te horen dat het al gebeurd is', async ({ page }) => {
+  const naam = `Tonijn${Date.now()}`
+  await signIn(page, `voorraad-te-laat-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Jan', huishouden: 'Latehuis' })
+  await voegToe(page, { plaats: 'Pantry', naam, nieuw: true })
+
+  // Dezelfde context, dus dezelfde sessie: twee toestellen van één gebruiker.
+  const tweede = await page.context().newPage()
+  await tweede.goto(routePath('inventory', 'en'))
+  await waitForHydration(tweede, 'button')
+  await expect(groep(tweede, 'Pantry', naam)).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toBeVisible()
+
+  const afstrepen = (p: Page) => p.getByRole('button', { name: tekst(en.inventory.closeNamed, { name: naam }), exact: true })
+
+  await afstrepen(page).click()
+  await page.getByRole('button', { name: en.inventory.consumed }).click()
+  await expect(groep(page, 'Pantry', naam)).toHaveCount(0)
+
+  // De tweede pagina toont nog de oude lijst.
+  await afstrepen(tweede).click()
+  await tweede.getByRole('button', { name: en.inventory.consumed }).click()
+  await expect(tweede.getByText(en.inventory.alreadyClosed)).toBeVisible()
 })
