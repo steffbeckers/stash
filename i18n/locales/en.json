@@ -80,6 +80,14 @@
     "saveItem": "Save",
     "refreshFailed": "The list could not be refreshed. What you see may be out of date."
   },
+  "offlineVoorraad": {
+    "queued": "Checked off — it will be sent once you are back online.",
+    "lastUpdated": "Last updated {date}",
+    "pending": "Waiting to be sent: {count}",
+    "notSent": "Some check-offs could not be sent ({count}).",
+    "signOutTitle": "Sign out anyway?",
+    "signOutBody": "Check-offs not sent yet: {count}. They will be lost if you sign out now."
+  },
   "profile": {
     "title": "Profile",
     "name": "Name",

@@ -80,6 +80,14 @@
     "saveItem": "Enregistrer",
     "refreshFailed": "La liste n'a pas pu être actualisée. Ce que vous voyez n'est peut-être plus à jour."
   },
+  "offlineVoorraad": {
+    "queued": "Retiré — ce sera envoyé dès que vous serez de nouveau en ligne.",
+    "lastUpdated": "Dernière mise à jour {date}",
+    "pending": "En attente d'envoi : {count}",
+    "notSent": "Certains retraits n'ont pas pu être envoyés ({count}).",
+    "signOutTitle": "Se déconnecter quand même ?",
+    "signOutBody": "Retraits pas encore envoyés : {count}. Ils seront perdus si vous vous déconnectez maintenant."
+  },
   "profile": {
     "title": "Profil",
     "name": "Nom",

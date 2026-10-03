@@ -8,12 +8,14 @@ import {
   type Reden,
   type VoorraadItem,
 } from '~/utils/voorraad'
+import { isNetwerkfout } from '~/utils/offlineVoorraad'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
 const { households, activeId, refresh } = useHousehold()
 const toast = useToast()
 const { load, loadPlaces, close, reopen } = useInventory()
+const offline = useOfflineVoorraad()
 
 const ready = ref(false)
 const failed = ref(false)
@@ -28,6 +30,7 @@ async function laad(): Promise<void> {
   const [i, p] = await Promise.all([load(activeId.value), loadPlaces(activeId.value)])
   items.value = i
   plaatsen.value = p
+  offline.bewaar({ id: activeId.value, naam: active.value?.name ?? '' }, p, i)
   vandaag.value = lokaleDatum(new Date())
 }
 
@@ -57,10 +60,33 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
     } else {
       toast.add({ title: t('inventory.alreadyClosed'), color: 'warning' })
     }
-  } catch {
+  } catch (oorzaak) {
+    const item = items.value.find((i) => i.id === itemId)
+    if (item && isNetwerkfout(oorzaak, navigator.onLine)) {
+      // Geen netwerk: de afstreping wacht op het toestel (spec §5, punt 2).
+      // Niet herladen — dat faalt nu ook, en de lijst klopt al.
+      offline.zetInWachtrij(item, reden)
+      items.value = items.value.filter((i) => i.id !== itemId)
+      toast.add({
+        title: t('offlineVoorraad.queued'),
+        actions: [{ label: t('inventory.undo'), onClick: () => { void ongedaanMakenOffline(item) } }],
+      })
+      return
+    }
     toast.add({ title: t('householdSettings.error'), color: 'error' })
   }
   await herlaad()
+}
+
+// Wachtte de afstreping nog, dan volstaat haar uit de wachtrij halen. Was ze
+// intussen al verstuurd (het netwerk kwam terug), dan is het een gewone
+// ongedaanmaking op de server.
+async function ongedaanMakenOffline(item: VoorraadItem): Promise<void> {
+  if (offline.haalUitWachtrij(item.id)) {
+    items.value = [...items.value, item]
+    return
+  }
+  await ongedaanMaken(item.id)
 }
 
 async function ongedaanMaken(itemId: string): Promise<void> {
@@ -90,6 +116,9 @@ onMounted(async () => {
     await navigateTo(localePath('onboarding'))
     return
   }
+  // Eerst versturen, dan laden: anders zet de server een item terug dat in de
+  // wachtrij al afgestreept is (spec §5).
+  await offline.verstuur()
   try {
     await laad()
   } catch {

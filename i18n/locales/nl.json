@@ -80,6 +80,14 @@
     "saveItem": "Bewaren",
     "refreshFailed": "De lijst kon niet ververst worden. Wat je ziet kan verouderd zijn."
   },
+  "offlineVoorraad": {
+    "queued": "Afgestreept — wordt verstuurd zodra je weer online bent.",
+    "lastUpdated": "Laatst bijgewerkt {date}",
+    "pending": "Wacht op verzending: {count}",
+    "notSent": "Sommige afstrepingen konden niet verstuurd worden ({count}).",
+    "signOutTitle": "Toch uitloggen?",
+    "signOutBody": "Nog niet verstuurde afstrepingen: {count}. Ze gaan verloren als je nu uitlogt."
+  },
   "profile": {
     "title": "Profiel",
     "name": "Naam",
