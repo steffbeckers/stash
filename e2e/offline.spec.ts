@@ -67,7 +67,29 @@ test('afstrepen zonder netwerk gaat in de wachtrij en wordt verstuurd zodra er n
 // De PATCH op inventory_item: afstrepen (close) en ongedaan maken (reopen).
 const isPatch = (url: URL, methode: string) => methode === 'PATCH' && url.pathname.endsWith('/rest/v1/inventory_item')
 const wachtrijWaarde = (page: Page) => page.evaluate((s) => localStorage.getItem(s), WACHTRIJ_SLEUTEL)
-const pauze = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Een belofte die de test zelf vrijgeeft: een verzoek blijft hangen tot dan. */
+function slot(): { vrij: Promise<void>; vrijgeven: () => void } {
+  let vrijgeven!: () => void
+  const vrij = new Promise<void>((r) => { vrijgeven = r })
+  return { vrij, vrijgeven }
+}
+
+/**
+ * Zet een afstreping van het item met deze naam in de wachtrij, zoals de
+ * pagina dat offline doet. Zonder eigenaar: die van de kopie, dus deze gebruiker.
+ */
+async function zaaiIngang(page: Page, naam: string, eigenaar?: string): Promise<void> {
+  await page.evaluate(
+    ({ kopieSleutel, wachtrijSleutel, naam, eigenaar }) => {
+      const kopie = JSON.parse(localStorage.getItem(kopieSleutel) ?? 'null')
+      const item = kopie.items.find((i: { naam: string }) => i.naam === naam)
+      const wachtrij = [{ itemId: item.id, reden: 'consumed', eigenaar: eigenaar ?? kopie.eigenaar, afgestreeptOp: new Date().toISOString(), item }]
+      localStorage.setItem(wachtrijSleutel, JSON.stringify(wachtrij))
+    },
+    { kopieSleutel: KOPIE_SLEUTEL, wachtrijSleutel: WACHTRIJ_SLEUTEL, naam, eigenaar },
+  )
+}
 
 async function maakHuishoudenMet(
   page: Page,
@@ -110,14 +132,19 @@ test('ongedaan maken tijdens een verzending wacht op die verzending', async ({ p
   await context.setOffline(true)
   await streepAf(page, naam)
   await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  // De muis op de toast pauzeert zijn timer van 5 s: de klik hieronder valt
+  // zo zeker binnen zijn levensduur, hoe traag de rest ook is.
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
 
-  // Alleen de eerste PATCH (het versturen) wordt vastgehouden; de PATCH van het
-  // heropenen daarna gaat meteen door.
+  // Alleen de eerste PATCH (het versturen) zit vast tot de test hem vrijgeeft;
+  // de PATCH van het heropenen daarna gaat meteen door.
+  const { vrij, vrijgeven } = slot()
   let vastgehouden = false
   await page.route('**/rest/v1/inventory_item*', async (route) => {
     if (!isPatch(new URL(route.request().url()), route.request().method()) || vastgehouden) return route.fallback()
     vastgehouden = true
-    await pauze(1500)
+    await vrij
     await route.continue()
   })
   const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
@@ -125,9 +152,13 @@ test('ongedaan maken tijdens een verzending wacht op die verzending', async ({ p
   await context.setOffline(false)
   await verzonden
 
-  // Het versturen loopt nu: ongedaan maken moet erop wachten, en daarna de
-  // afstreping op de server terugdraaien (serverheropening-tak).
-  await page.getByRole('button', { name: en.inventory.undo }).click()
+  // Het versturen zit vast: ongedaan maken moet erop wachten, en daarna de
+  // afstreping op de server terugdraaien (serverheropening-tak). Pas na de klik
+  // vrijgeven, niet na het afwachten ervan: dat wacht zelf op deze verzending.
+  // Wie niet wacht, haalt de afstreping nu uit de wachtrij terwijl de server
+  // haar zo meteen toch ontvangt.
+  await ongedaan.click()
+  vrijgeven()
   await verstuurd
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   await page.waitForFunction((s) => localStorage.getItem(s) === null, WACHTRIJ_SLEUTEL)
@@ -141,37 +172,39 @@ test('eerst versturen, dan laden: de eerste lijst toont de afstreping al', async
   const naam = `Eerst${Date.now()}`
   await maakHuishoudenMet(page, 'offline-eerst', 'Eva', [{ naam, aantal: 2 }])
 
-  // Een afstreping die nog op het toestel wacht, voor dit item van deze gebruiker.
-  await page.evaluate(
-    ({ kopieSleutel, wachtrijSleutel, naam }) => {
-      const kopie = JSON.parse(localStorage.getItem(kopieSleutel) ?? 'null')
-      const item = kopie.items.find((i: { naam: string }) => i.naam === naam)
-      const wachtrij = [{ itemId: item.id, reden: 'consumed', eigenaar: kopie.eigenaar, afgestreeptOp: new Date().toISOString(), item }]
-      localStorage.setItem(wachtrijSleutel, JSON.stringify(wachtrij))
-    },
-    { kopieSleutel: KOPIE_SLEUTEL, wachtrijSleutel: WACHTRIJ_SLEUTEL, naam },
-  )
+  // Wat de route-handlers zien, in volgorde.
+  const volgorde: string[] = []
 
-  // De PATCH duurt een seconde. Het antwoord van voorraad() is al opgehaald op
-  // het moment dat de server het item nog open heeft, maar wordt pas
-  // doorgegeven nadat de PATCH klaar is: wie niet eerst wacht op het
-  // versturen, toont dat verouderde antwoord.
-  const patchKlaar = page.waitForResponse((r) => isPatch(new URL(r.url()), r.request().method()))
+  // De afstreping komt pas in de wachtrij als de pagina haar huishoudens
+  // ophaalt (refresh() in onMounted). De plugin zag bij het opstarten dus een
+  // lege wachtrij, en het is de pagina zelf die verstuurt. Stond ze er vóór
+  // het herladen al, dan verstuurde de plugin haar, en hing de volgorde zonder
+  // het wachten in onMounted af van welk verzoek toevallig eerst klaar was.
+  let gezaaid = false
+  await page.route('**/rest/v1/household_member*', async (route) => {
+    if (!gezaaid) {
+      gezaaid = true
+      await zaaiIngang(page, naam)
+      volgorde.push('in de wachtrij')
+    }
+    await route.fallback()
+  })
   await page.route('**/rest/v1/inventory_item*', async (route) => {
     if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
-    await pauze(1000)
-    await route.continue()
+    const antwoord = await route.fetch()
+    // Vóór het doorgeven: de pagina kan het antwoord pas na deze regel zien.
+    volgorde.push('afstreping verstuurd')
+    await route.fulfill({ response: antwoord })
   })
   await page.route('**/rest/v1/rpc/voorraad', async (route) => {
-    const verouderd = await route.fetch()
-    await patchKlaar
-    await pauze(500)
-    await route.fulfill({ response: verouderd })
+    volgorde.push('voorraad gevraagd')
+    await route.fallback()
   })
   await page.reload()
 
   await expect(page.getByRole('region', { name: 'Pantry' })).toBeVisible()
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(volgorde).toEqual(['in de wachtrij', 'afstreping verstuurd', 'voorraad gevraagd'])
   expect(await wachtrijWaarde(page)).toBeNull()
 })
 
@@ -188,21 +221,29 @@ test('een verversing tijdens een verzending zet het afgestreepte item niet terug
   await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
   const itemId: string = await page.evaluate((s) => JSON.parse(localStorage.getItem(s) ?? '[]')[0].itemId, WACHTRIJ_SLEUTEL)
 
-  // Het versturen van a blijft hangen; het afstrepen van b gaat gewoon door.
+  // Het versturen van a zit vast tot de test het vrijgeeft; het afstrepen van
+  // b gaat gewoon door.
+  const isVanA = (url: string, methode: string) => isPatch(new URL(url), methode) && url.includes(`id=eq.${itemId}`)
+  const { vrij, vrijgeven } = slot()
   await page.route('**/rest/v1/inventory_item*', async (route) => {
-    const verzoek = route.request()
-    if (!isPatch(new URL(verzoek.url()), verzoek.method()) || !verzoek.url().includes(`id=eq.${itemId}`)) return route.fallback()
-    await pauze(3000)
+    if (!isVanA(route.request().url(), route.request().method())) return route.fallback()
+    await vrij
     await route.continue()
   })
-  const verstuurd = page.waitForResponse((r) => isPatch(new URL(r.url()), r.request().method()) && r.url().includes(`id=eq.${itemId}`))
+  const verzonden = page.waitForRequest((r) => isVanA(r.url(), r.method()))
+  const verstuurd = page.waitForResponse((r) => isVanA(r.url(), r.request().method()))
   await context.setOffline(false)
+  await verzonden
 
-  // b afstrepen ververst de lijst met het antwoord van de server, waar a nog open staat.
+  // b afstrepen ververst de lijst met het antwoord van de server, waar a nog
+  // open staat. b verdwijnt pas met die verversing, dus daarna telt a zoals
+  // de verversing het zette.
   await streepAf(page, b)
   await expect(groep(page, 'Pantry', b)).toBeHidden()
   await expect(groep(page, 'Pantry', a)).toContainText('×1')
 
+  // Pas nu mag het versturen van a door.
+  vrijgeven()
   await verstuurd
   await page.waitForFunction((s) => localStorage.getItem(s) === null, WACHTRIJ_SLEUTEL)
   await page.reload()
@@ -447,15 +488,7 @@ test('een andere gebruiker ziet de kopie van de vorige niet', async ({ page, con
 // Een ingang van een andere gebruiker voor een item van deze gebruiker, na het
 // laden gezaaid (de plugin heeft zijn opruimronde dan al gehad).
 async function zaaiVreemdeIngang(page: Page, naam: string): Promise<void> {
-  await page.evaluate(
-    ({ kopieSleutel, wachtrijSleutel, naam }) => {
-      const kopie = JSON.parse(localStorage.getItem(kopieSleutel) ?? 'null')
-      const item = kopie.items.find((i: { naam: string }) => i.naam === naam)
-      const wachtrij = [{ itemId: item.id, reden: 'consumed', eigenaar: 'een-andere-gebruiker', afgestreeptOp: new Date().toISOString(), item }]
-      localStorage.setItem(wachtrijSleutel, JSON.stringify(wachtrij))
-    },
-    { kopieSleutel: KOPIE_SLEUTEL, wachtrijSleutel: WACHTRIJ_SLEUTEL, naam },
-  )
+  await zaaiIngang(page, naam, 'een-andere-gebruiker')
 }
 
 // Het versturen kan nergens toe leiden: er mag niets naar de server gaan.
