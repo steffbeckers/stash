@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDatum, isVervallen, type Reden, type Variant } from '~/utils/voorraad'
+import { formatDatum, formatHoeveelheid, isVervallen, type Reden, type Variant } from '~/utils/voorraad'
 
 const props = defineProps<{ naam: string; varianten: Variant[]; vandaag: string }>()
 const open = defineModel<boolean>('open', { required: true })
@@ -23,7 +23,7 @@ function variantLabel(v: Variant): string {
     v.expiresAt ? formatDatum(v.expiresAt, locale.value, props.vandaag) : t('inventory.noExpiry'),
     `×${v.items.length}`,
   ]
-  if (v.unit !== 'stuk' || v.amount !== 1) delen.push(`${v.amount} ${v.unit}`)
+  if (v.unit !== 'stuk' || v.amount !== 1) delen.push(formatHoeveelheid(v.amount, v.unit, locale.value))
   if (isVervallen(v, props.vandaag)) delen.push(t('inventory.expired'))
   return delen.join(' · ')
 }

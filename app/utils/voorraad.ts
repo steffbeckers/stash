@@ -110,6 +110,35 @@ export function vervaltBinnenkort(items: VoorraadItem[], vandaag: string): Voorr
   return items.filter((i) => i.expiresAt !== null && i.expiresAt <= grens).sort(opDatum)
 }
 
+/** Eén rij in de strook: zelfde product, zelfde vervaldatum. */
+export interface Strookrij {
+  sleutel: string
+  productId: string
+  naam: string
+  expiresAt: string
+  aantal: number
+}
+
+/**
+ * Drie potten passata met dezelfde datum zijn in de strook één rij met ×3.
+ * Twee datums blijven twee rijen: dat verschil is wat de strook moet tonen.
+ * Bedoeld voor de uitkomst van vervaltBinnenkort(), dus items met een datum.
+ */
+export function groepeerStrook(items: VoorraadItem[]): Strookrij[] {
+  const perSleutel = new Map<string, Strookrij>()
+  for (const item of [...items].sort(opDatum)) {
+    if (item.expiresAt === null) continue
+    const sleutel = `${item.productId}|${item.expiresAt}`
+    let rij = perSleutel.get(sleutel)
+    if (!rij) {
+      rij = { sleutel, productId: item.productId, naam: item.naam, expiresAt: item.expiresAt, aantal: 0 }
+      perSleutel.set(sleutel, rij)
+    }
+    rij.aantal++
+  }
+  return [...perSleutel.values()]
+}
+
 export function varianten(items: VoorraadItem[]): Variant[] {
   const perSleutel = new Map<string, Variant>()
   // Gesorteerd vóór het groeperen: een Map houdt de invoegvolgorde aan, dus
@@ -180,6 +209,11 @@ export function groepslabel(items: VoorraadItem[]): Groepslabel {
       amount: Math.round(totalen.get(unit)! * 1000) / 1000,
     })),
   }
+}
+
+/** "0,684 kg" in het Nederlands, "0.684 kg" in het Engels. */
+export function formatHoeveelheid(amount: number, unit: VoorraadEenheid, locale: string): string {
+  return `${new Intl.NumberFormat(locale).format(amount)} ${unit}`
 }
 
 /** "3 okt", of "3 okt 2027" buiten het lopende jaar. */

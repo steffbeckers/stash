@@ -23,6 +23,15 @@ describe('locale-bestanden', () => {
     expect(flatten(fr).sort()).toEqual(enKeys)
   })
 
+  // In het Frans heetten ze allebei "Annuler", terwijl de knop in de
+  // afstreeptoast en die in bewerken of verwijderen tegelijk op het scherm
+  // kunnen staan en iets anders doen.
+  it('ongedaan maken en annuleren heten in elke taal anders', () => {
+    for (const [naam, bundel] of [['en', en], ['nl', nl], ['fr', fr]] as const) {
+      expect(bundel.inventory.undo, naam).not.toBe(bundel.inventory.cancel)
+    }
+  })
+
   it('heeft geen lege vertalingen', () => {
     for (const [name, bundle] of [['nl', nl], ['fr', fr], ['en', en]] as const) {
       const empty = flatten(bundle).filter((path) => {

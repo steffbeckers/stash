@@ -77,7 +77,8 @@
     "deleteTitle": "Dit item verwijderen?",
     "deleteHelp": "Alleen voor vergissingen. Wil je vastleggen dat het op is of weg moest, streep het dan af.",
     "cancel": "Annuleren",
-    "saveItem": "Bewaren"
+    "saveItem": "Bewaren",
+    "refreshFailed": "De lijst kon niet ververst worden. Wat je ziet kan verouderd zijn."
   },
   "profile": {
     "title": "Profiel",

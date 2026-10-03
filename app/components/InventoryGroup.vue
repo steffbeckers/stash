@@ -2,6 +2,7 @@
 import {
   EENHEDEN,
   formatDatum,
+  formatHoeveelheid,
   groepslabel,
   isVervallen,
   varianten,
@@ -24,8 +25,7 @@ const open = ref(false)
 const label = computed(() => {
   const l = groepslabel(props.groep.items)
   if (l.soort === 'aantal') return `×${l.aantal}`
-  const getal = new Intl.NumberFormat(locale.value)
-  return l.totalen.map((x) => `${getal.format(x.amount)} ${x.unit}`).join(' + ')
+  return l.totalen.map((x) => formatHoeveelheid(x.amount, x.unit, locale.value)).join(' + ')
 })
 
 function datumTekst(datum: string): string {
@@ -140,7 +140,7 @@ async function bevestigVerwijderen() {
         <div v-if="bewerkt !== item.id" class="flex flex-wrap items-center justify-between gap-2">
           <span>
             {{ item.expiresAt ? datumTekst(item.expiresAt) : t('inventory.noExpiry') }}
-            <template v-if="item.unit !== 'stuk' || item.amount !== 1"> · {{ item.amount }} {{ item.unit }}</template>
+            <template v-if="item.unit !== 'stuk' || item.amount !== 1"> · {{ formatHoeveelheid(item.amount, item.unit, locale) }}</template>
           </span>
           <div class="flex gap-1">
             <UButton size="xs" variant="soft" @click="afstrepenItem(item)">{{ t('inventory.closeItem') }}</UButton>

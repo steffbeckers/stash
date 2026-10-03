@@ -1,7 +1,9 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import {
   formatDatum,
+  formatHoeveelheid,
   groepeerPerPlaats,
+  groepeerStrook,
   groepslabel,
   isSamenhangFout,
   isVervallen,
@@ -69,6 +71,45 @@ describe('vervaltBinnenkort', () => {
     const zonderDatum = item({ expiresAt: null })
     const uitkomst = vervaltBinnenkort([netErover, zonderDatum, opDeGrens, vervallen], '2026-10-01')
     expect(uitkomst.map((i) => i.id)).toEqual([vervallen.id, opDeGrens.id])
+  })
+})
+
+describe('groepeerStrook', () => {
+  // Drie potten passata met dezelfde datum waren drie identieke rijen.
+  it('voegt hetzelfde product met dezelfde datum samen tot één rij', () => {
+    const rijen = groepeerStrook([
+      item({ expiresAt: '2026-10-03' }),
+      item({ expiresAt: '2026-10-03' }),
+      item({ expiresAt: '2026-10-03' }),
+    ])
+    expect(rijen.map((r) => [r.naam, r.expiresAt, r.aantal])).toEqual([['Passata', '2026-10-03', 3]])
+  })
+
+  // Het verschil in datum is net wat de strook moet tonen.
+  it('houdt twee datums van hetzelfde product apart, vroegste eerst', () => {
+    const rijen = groepeerStrook([
+      item({ expiresAt: '2026-10-02' }),
+      item({ expiresAt: '2026-10-04' }),
+      item({ expiresAt: '2026-10-02' }),
+    ])
+    expect(rijen.map((r) => [r.expiresAt, r.aantal])).toEqual([['2026-10-02', 2], ['2026-10-04', 1]])
+  })
+
+  it('houdt twee producten met dezelfde datum apart', () => {
+    const rijen = groepeerStrook([
+      item({ productId: 'passata', naam: 'Passata', expiresAt: '2026-10-03' }),
+      item({ productId: 'yoghurt', naam: 'Yoghurt', expiresAt: '2026-10-03' }),
+    ])
+    expect(rijen.map((r) => r.naam)).toEqual(['Passata', 'Yoghurt'])
+  })
+})
+
+describe('formatHoeveelheid', () => {
+  // Het groepslabel formatteerde al per taal, de losse items niet: "0.684"
+  // naast "0,684" op hetzelfde scherm.
+  it('schrijft een decimaal getal in de taal van de gebruiker', () => {
+    expect(formatHoeveelheid(0.684, 'kg', 'nl')).toBe('0,684 kg')
+    expect(formatHoeveelheid(0.684, 'kg', 'en')).toBe('0.684 kg')
   })
 })
 
