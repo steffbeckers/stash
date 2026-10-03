@@ -49,8 +49,10 @@ async function maakOngedaan(itemId: string) {
   // Loopt er een verzending, wacht dan: pas daarna weten we of de afstreping
   // nog in de wachtrij staat.
   await offline.wachtOpVerzending()
+  // Niet meer in de wachtrij: de afstreping is intussen verstuurd, en
+  // heropenen vraagt de server, die hier niet bereikbaar is.
   if (!offline.haalUitWachtrij(itemId)) {
-    toast.add({ title: t('householdSettings.error'), color: 'error' })
+    toast.add({ title: t('offlineVoorraad.alreadySent'), color: 'error' })
   }
   emit('gewijzigd')
   telWachtend()

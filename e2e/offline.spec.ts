@@ -262,6 +262,10 @@ test('de offline-pagina toont de kopie en strept af naar de wachtrij', async ({ 
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   // Offline geen toevoegen, bewerken of verwijderen.
   await expect(page.getByRole('link', { name: tekst(en.inventory.addTo, { place: 'Pantry' }) })).toHaveCount(0)
+  await groep(page, 'Pantry', naam).locator('button[aria-expanded]').click()
+  await expect(page.getByRole('button', { name: en.inventory.edit, exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: en.inventory.delete, exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: en.inventory.closeItem, exact: true }).first()).toBeVisible()
 
   await streepAf(page, naam)
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
@@ -300,4 +304,56 @@ test('de offline-pagina toont geen items die al in de wachtrij staan', async ({ 
   await page.goto(routePath('offline', 'en'))
   await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+})
+
+// De offline-pagina in een huishouden met één product (aantal 2), met de kopie al bewaard.
+async function openOfflinePagina(page: Page, voorvoegsel: string, naam: string): Promise<void> {
+  await maakHuishoudenMet(page, voorvoegsel, 'Olaf', [{ naam, aantal: 2 }])
+  await page.goto(routePath('offline', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+}
+
+test('ongedaan maken op de offline-pagina zet het item terug', async ({ page }) => {
+  const naam = `Spijt${Date.now()}`
+  await openOfflinePagina(page, 'offline-spijt', naam)
+
+  await streepAf(page, naam)
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toHaveCount(0)
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('lukt het bewaren in de wachtrij niet op de offline-pagina, dan is het een gewone fout', async ({ page }) => {
+  const naam = `Vol${Date.now()}`
+  await openOfflinePagina(page, 'offline-pagina-vol', naam)
+
+  await page.evaluate(() => {
+    Storage.prototype.setItem = () => {
+      throw new DOMException('vol', 'QuotaExceededError')
+    }
+  })
+  await streepAf(page, naam)
+
+  await expect(page.getByText(en.householdSettings.error, { exact: true })).toBeVisible()
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toHaveCount(0)
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('ongedaan maken van een al verstuurde afstreping zegt dat het niet meer kan', async ({ page }) => {
+  const naam = `Laat${Date.now()}`
+  await openOfflinePagina(page, 'offline-laat', naam)
+
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  // Alsof ze intussen verstuurd is: de wachtrij is leeg.
+  await page.evaluate((s) => localStorage.removeItem(s), WACHTRIJ_SLEUTEL)
+
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(page.getByText(en.offlineVoorraad.alreadySent, { exact: true })).toBeVisible()
+  await expect(page.getByText(en.householdSettings.error, { exact: true })).toHaveCount(0)
 })

@@ -85,6 +85,7 @@
     "lastUpdated": "Dernière mise à jour {date}",
     "pending": "En attente d'envoi : {count}",
     "notSent": "Certains retraits n'ont pas pu être envoyés ({count}).",
+    "alreadySent": "Ce retrait a déjà été envoyé et ne peut plus être annulé ici.",
     "signOutTitle": "Se déconnecter quand même ?",
     "signOutBody": "Retraits pas encore envoyés : {count}. Ils seront perdus si vous vous déconnectez maintenant."
   },

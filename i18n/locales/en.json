@@ -85,6 +85,7 @@
     "lastUpdated": "Last updated {date}",
     "pending": "Waiting to be sent: {count}",
     "notSent": "Some check-offs could not be sent ({count}).",
+    "alreadySent": "This check-off was already sent and can no longer be undone here.",
     "signOutTitle": "Sign out anyway?",
     "signOutBody": "Check-offs not sent yet: {count}. They will be lost if you sign out now."
   },

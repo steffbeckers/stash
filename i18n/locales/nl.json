@@ -85,6 +85,7 @@
     "lastUpdated": "Laatst bijgewerkt {date}",
     "pending": "Wacht op verzending: {count}",
     "notSent": "Sommige afstrepingen konden niet verstuurd worden ({count}).",
+    "alreadySent": "Deze afstreping is al verstuurd en kan hier niet meer ongedaan worden.",
     "signOutTitle": "Toch uitloggen?",
     "signOutBody": "Nog niet verstuurde afstrepingen: {count}. Ze gaan verloren als je nu uitlogt."
   },
