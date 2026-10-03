@@ -8,7 +8,7 @@ import {
   type Reden,
   type VoorraadItem,
 } from '~/utils/voorraad'
-import { isNetwerkfout } from '~/utils/offlineVoorraad'
+import { isNetwerkfout, wachtrijVoor } from '~/utils/offlineVoorraad'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
@@ -16,6 +16,7 @@ const { households, activeId, refresh } = useHousehold()
 const toast = useToast()
 const { load, loadPlaces, close, reopen } = useInventory()
 const offline = useOfflineVoorraad()
+const gebruiker = useSupabaseUser()
 
 const ready = ref(false)
 const failed = ref(false)
@@ -31,7 +32,8 @@ async function laad(): Promise<void> {
   // Een afstreping die nog in de wachtrij staat, is voor de server nog niet
   // gebeurd: zonder dit filter zet elke verversing tijdens het versturen het
   // item terug, in de lijst én in de lokale kopie.
-  const wachtend = new Set(offline.wachtrij().map((w) => w.itemId))
+  // Alleen de wachtrij van deze gebruiker telt; die van een ander verbergt niets.
+  const wachtend = new Set(gebruiker.value ? wachtrijVoor(offline.wachtrij(), gebruiker.value.sub).map((w) => w.itemId) : [])
   const zichtbaar = i.filter((item) => !wachtend.has(item.id))
   items.value = zichtbaar
   plaatsen.value = p

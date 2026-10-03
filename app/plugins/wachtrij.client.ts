@@ -12,6 +12,9 @@ export default defineNuxtPlugin(() => {
     () => user.value?.sub,
     (id) => {
       if (!id) return
+      // Spec §8: een kopie of wachtrij van een andere gebruiker wordt nooit
+      // getoond of verstuurd.
+      offline.ruimOp(id)
       void offline.verstuur()
     },
     { immediate: true },
