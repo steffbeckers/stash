@@ -395,10 +395,36 @@ test('uitloggen met wachtende afstrepingen vraagt eerst bevestiging', async ({ p
   // Nog ingelogd zolang er niet bevestigd is. De modal verbergt de rest van de
   // pagina voor het toegankelijkheidsvlak, vandaar includeHidden.
   await expect(page.getByRole('button', { name: en.nav.account, includeHidden: true })).toBeAttached()
+  // En de wachtrij is nog niet gewist.
+  expect(await wachtrijWaarde(page)).not.toBeNull()
 
   await dialoog.getByRole('button', { name: en.auth.signOut }).click()
   await expect(page.getByRole('button', { name: en.nav.language })).toBeVisible()
   expect(await page.evaluate((s) => localStorage.getItem(s), WACHTRIJ_SLEUTEL)).toBeNull()
+})
+
+test('annuleren bij de uitlogbevestiging houdt de sessie en de wachtrij', async ({ page }) => {
+  const naam = `Annuleer${Date.now()}`
+  await signIn(page, `offline-annuleer-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Aron', huishouden: 'Annuleerhuis' })
+  await voegToe(page, { plaats: 'Pantry', naam })
+
+  await page.route('**/rest/v1/inventory_item**', (route) =>
+    route.request().method() === 'PATCH' ? route.abort() : route.continue())
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+
+  await openUserMenu(page)
+  await page.getByRole('menuitem', { name: en.auth.signOut }).click()
+  const dialoog = page.getByRole('dialog')
+  await expect(dialoog.getByText(en.offlineVoorraad.signOutTitle)).toBeVisible()
+
+  await dialoog.getByRole('button', { name: en.inventory.cancel }).click()
+  await expect(dialoog).toBeHidden()
+  // Nog ingelogd, en niets gewist.
+  await expect(page.getByRole('button', { name: en.nav.account })).toBeVisible()
+  expect(await wachtrijWaarde(page)).not.toBeNull()
+  expect(await page.evaluate((s) => localStorage.getItem(s), KOPIE_SLEUTEL)).not.toBeNull()
 })
 
 // Spec §8. Bewust zonder uit te loggen: dan wist uitloggen de kopie al, en
@@ -418,16 +444,9 @@ test('een andere gebruiker ziet de kopie van de vorige niet', async ({ page, con
   await expect.poll(() => page.evaluate((s) => localStorage.getItem(s), KOPIE_SLEUTEL)).toBeNull()
 })
 
-test('een wachtrij-ingang van een andere gebruiker verbergt niets en wordt opgeruimd', async ({ page }) => {
-  const naam = `Vreemd${Date.now()}`
-  await maakHuishoudenMet(page, 'offline-vreemd', 'Vos', [{ naam, aantal: 2 }])
-
-  // Het versturen kan nergens toe leiden: er mag niets naar de server gaan.
-  await page.route('**/rest/v1/inventory_item*', (route) =>
-    isPatch(new URL(route.request().url()), route.request().method()) ? route.abort() : route.fallback(),
-  )
-  // Pas na het laden zaaien: de plugin heeft zijn opruimronde dan al gehad.
-  // Een ingang van een ander voor een item van deze gebruiker.
+// Een ingang van een andere gebruiker voor een item van deze gebruiker, na het
+// laden gezaaid (de plugin heeft zijn opruimronde dan al gehad).
+async function zaaiVreemdeIngang(page: Page, naam: string): Promise<void> {
   await page.evaluate(
     ({ kopieSleutel, wachtrijSleutel, naam }) => {
       const kopie = JSON.parse(localStorage.getItem(kopieSleutel) ?? 'null')
@@ -437,10 +456,40 @@ test('een wachtrij-ingang van een andere gebruiker verbergt niets en wordt opger
     },
     { kopieSleutel: KOPIE_SLEUTEL, wachtrijSleutel: WACHTRIJ_SLEUTEL, naam },
   )
+}
+
+// Het versturen kan nergens toe leiden: er mag niets naar de server gaan.
+const blokkeerPatch = (page: Page) =>
+  page.route('**/rest/v1/inventory_item*', (route) =>
+    isPatch(new URL(route.request().url()), route.request().method()) ? route.abort() : route.fallback(),
+  )
+
+test('na een herlaad ruimt de plugin de wachtrij-ingang van een andere gebruiker op', async ({ page }) => {
+  const naam = `Vreemd${Date.now()}`
+  await maakHuishoudenMet(page, 'offline-vreemd', 'Vos', [{ naam, aantal: 2 }])
+  await blokkeerPatch(page)
+  await zaaiVreemdeIngang(page, naam)
 
   await page.reload()
-  // Het filter in laad() telt alleen de wachtrij van deze gebruiker.
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
-  // En de plugin ruimt de ingang van de ander op.
+  // Bewijst ruimOp: bij een herlaad draait de plugin opnieuw.
   await expect.poll(() => wachtrijWaarde(page)).toBeNull()
+})
+
+test('laad() telt alleen de wachtrij van de eigen gebruiker, ook zonder opruimronde', async ({ page }) => {
+  const naam = `Eigen${Date.now()}`
+  await maakHuishoudenMet(page, 'offline-eigen', 'Eef', [{ naam, aantal: 2 }])
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await blokkeerPatch(page)
+  await zaaiVreemdeIngang(page, naam)
+
+  // Navigatie aan de clientzijde: de voorraadpagina laadt opnieuw, maar de
+  // plugin (en dus ruimOp) draait niet nog eens.
+  await page.getByRole('link', { name: tekst(en.inventory.addTo, { place: 'Pantry' }), exact: true }).click()
+  await expect(page).toHaveURL(/\/inventory\/new/)
+  await page.goBack()
+  await expect(page).toHaveURL(routePath('inventory', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  // De vreemde ingang staat er nog: ruimOp heeft hier niet gedraaid.
+  expect(await wachtrijWaarde(page)).not.toBeNull()
 })

@@ -33,6 +33,9 @@ async function signOut() {
   // privédata toch al weg van het toestel.
   offline.wis()
   await supabase.auth.signOut()
+  // Nogmaals: een laad() die nog liep kan tussen de eerste wisbeurt en het
+  // uitloggen een kopie hebben bewaard.
+  offline.wis()
   await navigateTo(localePath('index'))
 }
 
