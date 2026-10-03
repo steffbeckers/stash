@@ -10,6 +10,7 @@ import {
   schrijfWachtrij,
   streepAfInKopie,
   verstuurWachtrij,
+  voegWachtrijSamen,
   wachtrijVoor,
   wisAlles,
   wisKopie,
@@ -383,5 +384,35 @@ describe('verstuurWachtrij bij onzekerheid', () => {
     const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw null }, () => true)
     expect(r.mislukt).toBe(1)
     expect(r.resterend).toEqual([])
+  })
+})
+
+describe('voegWachtrijSamen', () => {
+  const a = inWachtrij('a')
+  const b = inWachtrij('b')
+
+  it('houdt wat nog niet verstuurd is', () => {
+    expect(voegWachtrijSamen([a, b], [a, b], [b])).toEqual([b])
+  })
+
+  it('laat een intussen ongedaan gemaakt item weg, ook als het niet verstuurd kon worden', () => {
+    // a stond in de momentopname en bleef resterend, maar staat niet meer in de opslag.
+    expect(voegWachtrijSamen([b], [a, b], [a, b])).toEqual([b])
+  })
+
+  it('houdt wat tijdens het versturen bijkwam', () => {
+    const c = inWachtrij('c')
+    expect(voegWachtrijSamen([a, c], [a], [])).toEqual([c])
+  })
+
+  it('behandelt een opnieuw afgestreept item als nieuw, ook al is het id gelijk', () => {
+    const opnieuw = { ...a, afgestreeptOp: '2026-10-03T12:05:00Z' }
+    // De oude a is verstuurd (niet resterend); de nieuwe a staat er nu en blijft.
+    expect(voegWachtrijSamen([opnieuw], [a], [])).toEqual([opnieuw])
+  })
+
+  it('raakt de wachtrij van een andere gebruiker niet', () => {
+    const vreemd = inWachtrij('v', 'bob')
+    expect(voegWachtrijSamen([a, vreemd], [a], [])).toEqual([vreemd])
   })
 })

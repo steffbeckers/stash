@@ -150,6 +150,19 @@ export function ruimOpVoor(
 }
 
 /**
+ * De wachtrij na een verzending, samengevoegd met wat er intussen in de
+ * opslag staat (`huidig`). Een item uit de momentopname (`verzonden`) blijft
+ * alleen staan als het nog niet verstuurd is (`resterend`) én nog in `huidig`
+ * staat: is het intussen ongedaan gemaakt, dan blijft het weg. Al het andere
+ * in `huidig` — ook een item dat ongedaan gemaakt en opnieuw afgestreept is,
+ * met een andere `afgestreeptOp` — is nieuw en blijft staan.
+ */
+export function voegWachtrijSamen(huidig: Wachtrij, verzonden: Wachtrij, resterend: Wachtrij): Wachtrij {
+  const zelfde = (a: Wachtrijitem, b: Wachtrijitem) => a.itemId === b.itemId && a.afgestreeptOp === b.afgestreeptOp
+  return huidig.filter((i) => !verzonden.some((v) => zelfde(v, i)) || resterend.some((r) => zelfde(r, i)))
+}
+
+/**
  * Is dit een netwerkfout? postgrest-js vangt een mislukte fetch op en geeft
  * `{ code: '', message: `${fetchError.name}: ${fetchError.message}` }` terug
  * (node_modules/@supabase/postgrest-js/dist/index.mjs). Een mislukte fetch is

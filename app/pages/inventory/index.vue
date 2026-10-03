@@ -28,9 +28,14 @@ const vandaag = ref(lokaleDatum(new Date()))
 async function laad(): Promise<void> {
   if (!activeId.value) return
   const [i, p] = await Promise.all([load(activeId.value), loadPlaces(activeId.value)])
-  items.value = i
+  // Een afstreping die nog in de wachtrij staat, is voor de server nog niet
+  // gebeurd: zonder dit filter zet elke verversing tijdens het versturen het
+  // item terug, in de lijst én in de lokale kopie.
+  const wachtend = new Set(offline.wachtrij().map((w) => w.itemId))
+  const zichtbaar = i.filter((item) => !wachtend.has(item.id))
+  items.value = zichtbaar
   plaatsen.value = p
-  offline.bewaar({ id: activeId.value, naam: active.value?.name ?? '' }, p, i)
+  offline.bewaar({ id: activeId.value, naam: active.value?.name ?? '' }, p, zichtbaar)
   vandaag.value = lokaleDatum(new Date())
 }
 
@@ -62,10 +67,11 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
     }
   } catch (oorzaak) {
     const item = items.value.find((i) => i.id === itemId)
-    if (item && isNetwerkfout(oorzaak, navigator.onLine)) {
+    // zetInWachtrij() staat in de voorwaarde: lukt het bewaren niet (opslag vol),
+    // dan valt dit terug op de gewone foutmelding en blijft het item in de lijst.
+    if (item && isNetwerkfout(oorzaak, navigator.onLine) && offline.zetInWachtrij(item, reden)) {
       // Geen netwerk: de afstreping wacht op het toestel (spec §5, punt 2).
       // Niet herladen — dat faalt nu ook, en de lijst klopt al.
-      offline.zetInWachtrij(item, reden)
       items.value = items.value.filter((i) => i.id !== itemId)
       toast.add({
         title: t('offlineVoorraad.queued'),
@@ -82,6 +88,9 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
 // intussen al verstuurd (het netwerk kwam terug), dan is het een gewone
 // ongedaanmaking op de server.
 async function ongedaanMakenOffline(item: VoorraadItem): Promise<void> {
+  // Loopt er een verzending, wacht dan: pas daarna weten we of de afstreping
+  // nog in de wachtrij staat of al op de server is.
+  await offline.wachtOpVerzending()
   if (offline.haalUitWachtrij(item.id)) {
     items.value = [...items.value, item]
     return
