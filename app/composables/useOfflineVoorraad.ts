@@ -32,6 +32,7 @@ export function useOfflineVoorraad() {
   const toast = useToast()
   const { $i18n } = useNuxtApp()
   const { close } = useInventory()
+  const supabase = useSupabaseClient()
 
   function opslag(): Storage | null {
     if (!import.meta.client) return null
@@ -125,6 +126,15 @@ export function useOfflineVoorraad() {
     if (!id) return
     const mijn = wachtrijVoor(wachtrij(), id)
     if (mijn.length === 0) return
+    // Geen sessie, geen verzending. Staat de app langer dan een uur open
+    // terwijl het toestel offline is, dan verloopt het access-token: auth-js
+    // houdt user.sub nog vast, maar getSession() geeft geen sessie meer, en
+    // supabase-js stuurt dan de anon-sleutel mee. De database antwoordt met
+    // 42501 (anon mag niet aan inventory_item). verstuurWachtrij houdt dat wel
+    // vast, maar versturen heeft dan geen zin: de plugin probeert opnieuw
+    // zodra de sessie vernieuwd is (TOKEN_REFRESHED of SIGNED_IN).
+    const { data } = await supabase.auth.getSession()
+    if (!data.session) return
     const r = await verstuurWachtrij(mijn, (itemId, reden) => close(itemId, reden))
     // Herschrijf de wachtrij zoals ze nu in de opslag staat, niet zoals ze was
     // toen het versturen begon (zie voegWachtrijSamen).

@@ -178,14 +178,12 @@ export function isNetwerkfout(oorzaak: unknown, online: boolean): boolean {
 }
 
 /**
- * Een afgebroken verzoek: postgrest-js geeft `code: ''` met een melding die met
- * "AbortError:" begint, een rauwe fetch een fout met `name === 'AbortError'`.
+ * Een expliciete data- of integriteitsfout: een SQLSTATE van vijf tekens uit
+ * klasse 22 (data, bv. 22P02 ongeldige invoer) of 23 (integriteit, bv. 23514
+ * check-constraint). Alleen zo'n fout zegt dat opnieuw proberen nooit lukt.
  */
-function isAfgebroken(oorzaak: unknown): boolean {
-  if (!isRecord(oorzaak)) return false
-  const { code, message, name } = oorzaak
-  if (name === 'AbortError') return true
-  return code === '' && typeof message === 'string' && message.startsWith('AbortError:')
+function isDefinitieveFout(oorzaak: unknown): boolean {
+  return isRecord(oorzaak) && typeof oorzaak.code === 'string' && /^2[23][0-9A-Z]{3}$/.test(oorzaak.code)
 }
 
 /** In een omgeving zonder navigator (of zonder onLine) gaan we uit van online. */
@@ -195,13 +193,16 @@ function standaardOnline(): boolean {
 
 /**
  * Verstuurt in volgorde (spec §6). `sluit` is useInventory().close(): true is
- * verstuurd, false is vervallen (al afgestreept of verwijderd). Een
- * netwerkfout stopt de verzending en houdt dat item en de rest vast. Dat geldt
- * ook voor een fout terwijl het toestel offline is (`online()`, bijvoorbeeld
- * een verlopen sessie of een proxyfout zonder verbinding) en voor een
- * afgebroken verzoek: we weten dan niet of de server het ontving, en sluiten
- * is idempotent, dus bewaren kost niets en laten vallen kan werk kwijtmaken.
- * Alleen een andere fout bij een online toestel laat het item vallen.
+ * verstuurd, false is vervallen (al afgestreept, verwijderd, of geen lid meer:
+ * RLS maakt van dat laatste nul rijen, geen fout).
+ *
+ * Sluiten is idempotent, dus een item bewaren kost niets en het laten vallen
+ * kan werk kwijtmaken. Daarom valt een item alleen weg (`mislukt`) bij een
+ * expliciete data- of integriteitsfout (klasse 22 of 23) terwijl het toestel
+ * online is (`online()`). Elke andere fout stopt de verzending en houdt dat
+ * item en de rest vast: een netwerkfout, een afgebroken verzoek, een verlopen
+ * sessie (42501 met de anon-sleutel, PGRST301), een serverfout, een antwoord
+ * zonder databasecode (captive portal, proxy) of een gegooide niet-object.
  */
 export async function verstuurWachtrij(
   wachtrij: Wachtrij,
@@ -215,7 +216,7 @@ export async function verstuurWachtrij(
       if (await sluit(item.itemId, item.reden)) resultaat.verstuurd++
       else resultaat.vervallen++
     } catch (oorzaak) {
-      if (isNetwerkfout(oorzaak, online()) || isAfgebroken(oorzaak)) {
+      if (!online() || !isDefinitieveFout(oorzaak)) {
         resultaat.resterend = wachtrij.slice(i)
         return resultaat
       }

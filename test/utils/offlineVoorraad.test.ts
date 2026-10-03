@@ -183,15 +183,56 @@ describe('verstuurWachtrij', () => {
     })
     expect(geprobeerd).toEqual(['a', 'b'])
     expect(r.resterend.map((i) => i.itemId)).toEqual(['b', 'c'])
-    expect(r.verstuurd).toBe(1)
+    expect(r).toMatchObject({ verstuurd: 1, vervallen: 0, mislukt: 0 })
   })
 
-  it('laat een afstreping met een andere fout vallen en gaat door', async () => {
+  it('houdt de hele wachtrij vast bij een netwerkfout op het eerste item', async () => {
+    const geprobeerd: string[] = []
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b'), inWachtrij('c')], async (id) => {
+      geprobeerd.push(id)
+      throw netwerkfout
+    })
+    expect(geprobeerd).toEqual(['a'])
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a', 'b', 'c'])
+    expect(r).toMatchObject({ verstuurd: 0, vervallen: 0, mislukt: 0 })
+  })
+
+  it('houdt alleen het laatste item vast bij een netwerkfout op het laatste item', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b'), inWachtrij('c')], async (id) => {
+      if (id === 'c') throw netwerkfout
+      return id === 'a'
+    })
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['c'])
+    expect(r).toMatchObject({ verstuurd: 1, vervallen: 1, mislukt: 0 })
+  })
+
+  // Een check-constraint: opnieuw versturen lukt nooit, dus het item valt weg.
+  it('laat een afstreping met een integriteitsfout (23514) vallen en gaat door met het volgende item', async () => {
+    const geprobeerd: string[] = []
     const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async (id) => {
-      if (id === 'a') throw { code: '42501', message: 'permission denied' }
+      geprobeerd.push(id)
+      if (id === 'a') throw { code: '23514', message: 'new row violates check constraint' }
       return true
     })
+    expect(geprobeerd).toEqual(['a', 'b'])
     expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 0, mislukt: 1 })
+  })
+
+  it('laat een afstreping met een datafout (22P02) vallen', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => {
+      throw { code: '22P02', message: 'invalid input syntax for type uuid' }
+    })
+    expect(r).toEqual({ resterend: [], verstuurd: 0, vervallen: 0, mislukt: 1 })
+  })
+
+  // Een verlopen sessie: supabase-js stuurt dan de anon-sleutel mee, en anon
+  // heeft geen rechten op inventory_item. Met een nieuwe sessie lukt het wel.
+  it('houdt een afstreping vast bij permission denied (42501)', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async () => {
+      throw { code: '42501', message: 'permission denied for table inventory_item' }
+    })
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a', 'b'])
+    expect(r).toMatchObject({ verstuurd: 0, vervallen: 0, mislukt: 0 })
   })
 })
 
@@ -335,26 +376,28 @@ describe('isNetwerkfout met rare invoer', () => {
 
 describe('verstuurWachtrij bij onzekerheid', () => {
   const verlopen = { code: 'PGRST301', message: 'JWT expired' }
+  const integriteitsfout = { code: '23514', message: 'new row violates check constraint' }
 
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  // Een proxy of captive portal kan een niet-TypeError geven terwijl we offline zijn.
-  it('houdt het item vast bij een andere fout als het toestel offline is', async () => {
-    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async () => { throw verlopen }, () => false)
+  // Offline is elke fout onzeker, ook een die online definitief zou zijn.
+  it('houdt het item vast bij een integriteitsfout als het toestel offline is', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async () => { throw integriteitsfout }, () => false)
     expect(r.resterend.map((i) => i.itemId)).toEqual(['a', 'b'])
     expect(r.mislukt).toBe(0)
   })
 
-  it('laat hetzelfde item vallen als het toestel online is', async () => {
+  it('houdt een verlopen sessie vast', async () => {
     const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw verlopen }, () => true)
-    expect(r).toEqual({ resterend: [], verstuurd: 0, vervallen: 0, mislukt: 1 })
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a'])
+    expect(r.mislukt).toBe(0)
   })
 
   it('gebruikt navigator.onLine als er geen online-functie is meegegeven', async () => {
     vi.stubGlobal('navigator', { onLine: false })
-    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw verlopen })
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw integriteitsfout })
     expect(r.resterend.length).toBe(1)
   })
 
@@ -368,22 +411,30 @@ describe('verstuurWachtrij bij onzekerheid', () => {
     expect(r.mislukt).toBe(0)
   })
 
-  // Pint `code === ''` in de afbreekcontrole.
+  // De code beslist, ook als de melding toevallig op een afbreking lijkt.
   it('telt een databasefout met AbortError in de melding als mislukt', async () => {
     const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw { code: '23514', message: 'AbortError: x' } }, () => true)
     expect(r.mislukt).toBe(1)
   })
 
-  // Pint de controle op een melding in de afbreekcontrole.
-  it('telt een fout zonder melding als mislukt in plaats van te crashen', async () => {
-    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw { code: '' } }, () => true)
-    expect(r.mislukt).toBe(1)
+  // Een serverfout, een captive portal of een proxy: geen databasecode uit
+  // klasse 22 of 23, dus geen bewijs dat opnieuw proberen nooit lukt.
+  const zonderCode: [string, unknown][] = [
+    ['een lege code', { code: '' }],
+    ['geen code', { message: 'Bad Gateway' }],
+    ['een code die geen string is', { code: 23514, message: 'x' }],
+    ['een PostgREST-code', { code: 'PGRST116', message: 'x' }],
+  ]
+  it.each(zonderCode)('houdt een fout zonder code vast: %s', async (_naam, fout) => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw fout }, () => true)
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a'])
+    expect(r.mislukt).toBe(0)
   })
 
-  it('crasht niet op een lege worp en telt die als mislukt', async () => {
-    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw null }, () => true)
-    expect(r.mislukt).toBe(1)
-    expect(r.resterend).toEqual([])
+  it.each([null, undefined, 'tekst', 42])('crasht niet op een worp van %s en houdt die vast', async (worp) => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw worp }, () => true)
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a'])
+    expect(r.mislukt).toBe(0)
   })
 })
 

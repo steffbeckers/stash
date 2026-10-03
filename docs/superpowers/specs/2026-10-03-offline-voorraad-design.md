@@ -136,7 +136,14 @@ In volgorde, per item:
 | `true` | verstuurd, uit de wachtrij |
 | `false` (nul rijen: al afgestreept of verwijderd) | vervallen, stil uit de wachtrij. Dat is de idempotentie uit voorraad-spec §7. |
 | een netwerkfout | blijft staan; de rest wacht ook, want het netwerk is weg |
-| een andere fout (bv. geen lid meer) | mislukt, uit de wachtrij |
+| een expliciete data- of integriteitsfout (SQLSTATE klasse `22` of `23`, bv. `23514`) | mislukt, uit de wachtrij |
+| elke andere fout (`42501`, `PGRST…`, een serverfout, geen of een lege code, een afgebroken verzoek) | blijft staan, net als bij een netwerkfout; de rest wacht ook |
+
+Sluiten is idempotent: bewaren kost niets, weggooien verliest werk. Een
+verlopen sessie geeft `42501` (supabase-js stuurt dan de anon-sleutel mee), en
+een captive portal of proxy geeft een antwoord zonder databasecode. Die mogen
+geen afstrepingen wissen. "Geen lid meer" is geen fout: RLS op UPDATE maakt er
+nul rijen van, en dat is `false`, dus vervallen.
 
 `useOfflineVoorraad().verstuur()` koppelt dit aan `useInventory().close()`.
 Het neemt alleen afstrepingen van de huidige gebruiker mee, en schrijft het
@@ -189,7 +196,7 @@ Zonder kopie blijft de offline-pagina precies zoals ze nu is.
 | Kopie onleesbaar of van een andere versie | Behandeld als geen kopie. |
 | Kopie van een andere gebruiker | Gewist bij het eerste opstarten met een gebruiker. |
 | Afstreping in de wachtrij, item intussen afgestreept of verwijderd | Vervallen, stil. |
-| Afstreping faalt om een andere reden dan het netwerk | Valt weg, met één toast met het aantal. |
+| Afstreping faalt met een data- of integriteitsfout (klasse `22`/`23`) | Valt weg, met één toast met het aantal. Elke andere fout houdt haar vast (§6). |
 | Twee tabbladen | Geen coördinatie. Dubbel versturen is onschadelijk. |
 | De offline-pagina online geopend | Toont de kopie ook. Het is dezelfde pagina; "Opnieuw proberen" brengt je terug. |
 
@@ -207,7 +214,7 @@ gezien door weg te halen wat ze beschermt.
 | Afstrepen in de kopie haalt precies dat item weg; terugzetten zet het terug | de filter / het terugzetten |
 | `wachtrijVoor` geeft alleen afstrepingen van de eigenaar | het eigenaarsfilter |
 | `isNetwerkfout`: waar voor de nagemeten fetchfout, voor "Load failed" en bij offline; onwaar voor `23514` en voor `permission denied` | elke tak apart |
-| `verstuurWachtrij`: `true` verstuurd, `false` vervallen, een netwerkfout blijft staan en houdt de rest tegen, een andere fout telt als mislukt | elke tak apart |
+| `verstuurWachtrij`: `true` verstuurd, `false` vervallen, een netwerkfout of een andere onzekere fout blijft staan en houdt de rest tegen, een fout uit klasse `22`/`23` telt als mislukt | elke tak apart |
 
 ### End-to-end tegen de dev-server — `e2e/offline.spec.ts`
 
