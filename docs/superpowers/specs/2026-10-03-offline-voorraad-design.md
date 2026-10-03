@@ -267,3 +267,35 @@ dev-tests niet kunnen zien, zonder een magic link tegen poort 3001.
 | Nieuw | `app/utils/offlineVoorraad.ts`, `app/composables/useOfflineVoorraad.ts`, `app/plugins/wachtrij.client.ts`, `app/components/OfflineVoorraad.vue` (de weergave uit §7, zodat `offline.vue` klein blijft). |
 | `i18n/locales/*.json` | Een blok `offlineVoorraad` in de drie talen. |
 | `docs/superpowers/open-bevindingen.md` | De rij "Offline data" verdwijnt. De beperkingen uit §11 komen erbij waar ze een bevinding zijn. |
+
+## 13. Afwijkingen tijdens de uitvoering
+
+- **`verstuurWachtrij` heeft een derde parameter `online`** (standaard
+  `navigator.onLine`). Offline is elke fout onzeker, ook een die online
+  definitief zou zijn. Daarnaast valt een item alleen weg bij een fout uit
+  SQLSTATE-klasse `22` of `23`; al het andere, ook een afgebroken verzoek,
+  blijft staan (§6). Reden: sluiten is idempotent, en een verlopen sessie of
+  een serverfout wiste anders de hele wachtrij.
+- **Mislukt het schrijven naar de wachtrij, dan krijg je een foutmelding en
+  blijft het item staan.** §9 zei "niet getoond". Reden: anders zegt de toast
+  "wordt verstuurd" over een afstreping die nergens bewaard is.
+- **De melding `offlineVoorraad.alreadySent` op de offline-pagina.** Reden:
+  was de afstreping intussen verstuurd, dan kan de offline-pagina haar niet
+  meer terugdraaien (heropenen vraagt de server), en zwijgen zou lijken alsof
+  het ongedaan maken gelukt is.
+- **`wachtOpVerzending()` en `voegWachtrijSamen()`.** Reden: de race bij
+  ongedaan maken tijdens een verzending. Ongedaan maken wacht op de lopende
+  verzending, en het terugschrijven van de wachtrij houdt rekening met wat er
+  intussen veranderde, zodat een ongedaanmaking niet verloren gaat of
+  teruggedraaid wordt.
+- **Het filter op de eigen wachtrij in `laad()` en in `OfflineVoorraad.vue`.**
+  Reden: een verversing tijdens een verzending zette een afgestreept item
+  anders terug, in de lijst én in de kopie; alleen de wachtrij van de huidige
+  gebruiker telt.
+- **De wikkel-`<div>` in `UserMenu.vue`.** Reden: met de bevestigingsmodal
+  erbij kreeg de component meerdere wortels, en dan valt de `class="ml-auto"`
+  die `AppHeader` meegeeft weg.
+- **De kopie wordt direct bijgewerkt na een online afstreping of
+  ongedaanmaking** (`streepAfInDeKopie`, `zetTerugInDeKopie`). Reden: faalt de
+  verversing na een geslaagde `close()` of `reopen()`, dan toonde de
+  offline-pagina het item anders verkeerd.
