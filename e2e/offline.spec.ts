@@ -202,9 +202,64 @@ test('eerst versturen, dan laden: de eerste lijst toont de afstreping al', async
   })
   await page.reload()
 
-  await expect(page.getByRole('region', { name: 'Pantry' })).toBeVisible()
+  // Ruim boven de standaard 5 s: herladen, hydrateren en het zaaien vanuit de
+  // route-handler halen dat met vier workers op dezelfde dev-server niet. De
+  // spinner bleef niet hangen: met deze termijn slaagde dat 4 op 4.
+  await expect(page.getByRole('region', { name: 'Pantry' })).toBeVisible({ timeout: 30_000 })
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
   expect(volgorde).toEqual(['in de wachtrij', 'afstreping verstuurd', 'voorraad gevraagd'])
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('de voorraadpagina wacht op een verzending die de plugin al gestart had', async ({ page }) => {
+  const naam = `Plugin${Date.now()}`
+  await maakHuishoudenMet(page, 'offline-plugin', 'Pia', [{ naam, aantal: 2 }])
+  // Vóór het herladen in de wachtrij: de plugin verstuurt haar bij het opstarten.
+  await zaaiIngang(page, naam)
+
+  const volgorde: string[] = []
+  let verzendingen = 0
+  const pluginVerstuurt = slot()
+  const afstreping = slot()
+
+  // De huishoudens blijven hangen tot de afstreping onderweg is. De pagina
+  // verstuurt pas na refresh(), dus deze verzending is die van de plugin.
+  await page.route('**/rest/v1/household_member*', async (route) => {
+    await pluginVerstuurt.vrij
+    await route.fallback()
+  })
+  // De afstreping blijft hangen tot de pagina zich verraadt — een tweede
+  // verzending of voorraad() opvragen — of tot de termijn hieronder om is.
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
+    verzendingen++
+    pluginVerstuurt.vrijgeven()
+    if (verzendingen > 1) afstreping.vrijgeven()
+    await afstreping.vrij
+    const antwoord = await route.fetch()
+    volgorde.push('afstreping verstuurd')
+    await route.fulfill({ response: antwoord })
+  })
+  await page.route('**/rest/v1/rpc/voorraad', async (route) => {
+    volgorde.push('voorraad gevraagd')
+    afstreping.vrijgeven()
+    await route.fallback()
+  })
+  const huishoudens = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/rest/v1/household_member'))
+  const herladen = page.reload()
+
+  // Een pagina die niet wacht, vraagt voorraad() meteen na haar huishoudens
+  // op; een die naast de plugin verstuurt, stuurt meteen een tweede PATCH.
+  // Beide geven de afstreping zelf vrij. De termijn begrenst alleen hoe lang
+  // een fout mag uitblijven: een juiste pagina slaagt hoe traag het ook gaat.
+  await huishoudens
+  await page.waitForTimeout(2000)
+  afstreping.vrijgeven()
+  await herladen
+
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(volgorde).toEqual(['afstreping verstuurd', 'voorraad gevraagd'])
+  expect(verzendingen).toBe(1)
   expect(await wachtrijWaarde(page)).toBeNull()
 })
 
