@@ -31,11 +31,14 @@ async function laad(): Promise<void> {
   vandaag.value = lokaleDatum(new Date())
 }
 
+// Alleen de eerste lading mag de pagina in foutstand zetten. Faalt een
+// verversing ná een actie, dan blijft de laatst bekende lijst staan: die is
+// misschien verouderd, maar een foutpagina tot je zelf herlaadt is erger.
 async function herlaad(): Promise<void> {
   try {
     await laad()
   } catch {
-    failed.value = true
+    toast.add({ title: t('inventory.refreshFailed'), color: 'warning' })
   }
 }
 

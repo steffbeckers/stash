@@ -325,3 +325,61 @@ test('wie te laat afstreept, krijgt te horen dat het al gebeurd is', async ({ pa
   // die de tekst als deelreeks bevat, en dat geeft een strict-mode-fout.
   await expect(tweede.getByText(en.inventory.alreadyClosed, { exact: true })).toBeVisible()
 })
+
+// Drie potten met dezelfde datum waren in de strook drie identieke rijen.
+test('de strook toont gelijke items als één rij', async ({ page }) => {
+  const naam = `Yoghurt${Date.now()}`
+  await signIn(page, `voorraad-strookrij-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Rita', huishouden: 'Rijenhuis' })
+  await voegToe(page, { plaats: 'Fridge', naam, nieuw: true, aantal: 3, vervaldatum: datumOver(2) })
+
+  const rijen = page.getByRole('region', { name: en.inventory.expiringSoon }).getByRole('listitem').filter({ hasText: naam })
+  await expect(rijen).toHaveCount(1)
+  await expect(rijen).toContainText('×3')
+})
+
+// Een mislukte verversing ná een geslaagde actie zette de hele pagina in
+// foutstand tot je zelf herlaadde. De laatst bekende lijst hoort te blijven.
+test('een mislukte verversing laat de lijst staan', async ({ page }) => {
+  const naam = `Bonen${Date.now()}`
+  await signIn(page, `voorraad-verversing-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Vince', huishouden: 'Verversinghuis' })
+  await voegToe(page, { plaats: 'Pantry', naam, nieuw: true, aantal: 2 })
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+
+  // Vanaf hier faalt elke lezing van de voorraad; afstrepen zelf blijft werken.
+  await page.route('**/rest/v1/rpc/voorraad**', (route) => route.abort())
+  await page.getByRole('button', { name: tekst(en.inventory.closeNamed, { name: naam }), exact: true }).click()
+  await page.getByRole('button', { name: en.inventory.consumed }).click()
+
+  await expect(page.getByText(en.inventory.refreshFailed, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toBeVisible()
+  await expect(page.getByText(en.householdSettings.error, { exact: true })).toHaveCount(0)
+})
+
+// 1234,5 kg: in het Engels "1,234.5 kg". Een ongeformatteerd getal toont
+// "1234.5 kg", dus dit verschil is ook in het Engels zichtbaar.
+test('hoeveelheden staan in de notatie van de taal', async ({ page }) => {
+  const naam = `Gehakt${Date.now()}`
+  await signIn(page, `voorraad-notatie-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Nora', huishouden: 'Notatiehuis' })
+
+  // Twee datums, zodat de afstreepmodal varianten met hun hoeveelheid toont.
+  for (const dagen of [5, 9]) {
+    await kiesProduct(page, { plaats: 'Freezer', naam, nieuw: dagen === 5 })
+    await page.getByLabel(en.inventory.expiresAt).fill(datumOver(dagen))
+    await page.getByLabel(en.inventory.byWeight).check()
+    await page.getByLabel(en.inventory.amount).fill('1234.5')
+    await page.getByRole('button', { name: en.inventory.save }).click()
+    await expect(page).toHaveURL(routePath('inventory', 'en'))
+  }
+
+  const g = groep(page, 'Freezer', naam)
+  await g.locator('button[aria-expanded]').click()
+  const items = g.getByRole('listitem')
+  await expect(items).toHaveCount(2)
+  await expect(items.first()).toContainText('1,234.5 kg')
+
+  await page.getByRole('button', { name: tekst(en.inventory.closeNamed, { name: naam }), exact: true }).click()
+  await expect(page.getByRole('radio').first()).toHaveAccessibleName(/1,234\.5 kg/)
+})
