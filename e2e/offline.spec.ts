@@ -249,3 +249,55 @@ test('lukt het bewaren in de wachtrij niet, dan is het een gewone fout', async (
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   expect(await wachtrijWaarde(page)).toBeNull()
 })
+
+test('de offline-pagina toont de kopie en strept af naar de wachtrij', async ({ page }) => {
+  const naam = `Kelder${Date.now()}`
+  await signIn(page, `offline-pagina-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Olga', huishouden: 'Offlinehuis' })
+  await voegToe(page, { plaats: 'Pantry', naam, aantal: 2 })
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+
+  await page.goto(routePath('offline', 'en'))
+  await expect(page.getByText(en.offline.title)).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  // Offline geen toevoegen, bewerken of verwijderen.
+  await expect(page.getByRole('link', { name: tekst(en.inventory.addTo, { place: 'Pantry' }) })).toHaveCount(0)
+
+  await streepAf(page, naam)
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+
+  // Terug op de voorraadpagina wordt eerst verstuurd, dan geladen.
+  await page.goto(routePath('inventory', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  // De voorraadpagina filtert wat in de wachtrij staat, dus ×1 bewijst nog niet
+  // dat er verstuurd is: dat bewijst een lege wachtrij, en daarna de database.
+  await page.waitForFunction((s) => localStorage.getItem(s) === null, WACHTRIJ_SLEUTEL)
+  await page.reload()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+})
+
+test('de offline-pagina toont geen items die al in de wachtrij staan', async ({ page }) => {
+  const naam = `Dubbel${Date.now()}`
+  await maakHuishoudenMet(page, 'offline-dubbel', 'Dora', [{ naam, aantal: 2 }])
+
+  // Het versturen kan niet slagen: de afstreping blijft in de wachtrij, terwijl
+  // de kopie het item nog bevat. Zo staat een item in allebei, zoals wanneer
+  // het bijwerken van de kopie na het schrijven van de wachtrij mislukt.
+  await page.route('**/rest/v1/inventory_item*', (route) =>
+    isPatch(new URL(route.request().url()), route.request().method()) ? route.abort() : route.fallback(),
+  )
+  await page.evaluate(
+    ({ kopieSleutel, wachtrijSleutel, naam }) => {
+      const kopie = JSON.parse(localStorage.getItem(kopieSleutel) ?? 'null')
+      const item = kopie.items.find((i: { naam: string }) => i.naam === naam)
+      const wachtrij = [{ itemId: item.id, reden: 'consumed', eigenaar: kopie.eigenaar, afgestreeptOp: new Date().toISOString(), item }]
+      localStorage.setItem(wachtrijSleutel, JSON.stringify(wachtrij))
+    },
+    { kopieSleutel: KOPIE_SLEUTEL, wachtrijSleutel: WACHTRIJ_SLEUTEL, naam },
+  )
+
+  await page.goto(routePath('offline', 'en'))
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+})

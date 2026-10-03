@@ -6,6 +6,8 @@ const props = defineProps<{
   plaatsen: Bewaarplaats[]
   groepen: Productgroep[]
   vandaag: string
+  /** Offline: alleen afstrepen, geen toevoegen, bewerken of verwijderen. */
+  alleenAfstrepen?: boolean
 }>()
 const emit = defineEmits<{ afstrepen: [itemId: string, naam: string, reden: Reden]; changed: [] }>()
 const { t } = useI18n()
@@ -21,6 +23,7 @@ const toevoegpad = computed(() => ({ path: localePath('inventory-new'), query: {
       <!-- Zichtbaar "Add", voor een schermlezer "Add to Pantry": met drie
            plaatsen op één scherm zegt "Add" alleen niets. -->
       <UButton
+        v-if="!alleenAfstrepen"
         :to="toevoegpad"
         size="sm"
         variant="soft"
@@ -39,6 +42,7 @@ const toevoegpad = computed(() => ({ path: localePath('inventory-new'), query: {
         :groep="groep"
         :plaatsen="plaatsen"
         :vandaag="vandaag"
+        :alleen-afstrepen="alleenAfstrepen"
         @afstrepen="(id, naam, reden) => emit('afstrepen', id, naam, reden)"
         @changed="emit('changed')"
       />

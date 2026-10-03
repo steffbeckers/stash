@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
 import en from '../../i18n/locales/en.json' with { type: 'json' }
 import nl from '../../i18n/locales/nl.json' with { type: 'json' }
+import { routePath } from '../../routes.config'
+import { KOPIE_SLEUTEL, type Kopie } from '../../app/utils/offlineVoorraad'
 
 // De landingspagina staat niet in routePaths: bij `prefix_except_default` ís
 // de prefix de route, dus er valt niets te vertalen. Vandaar deze twee
@@ -155,4 +157,30 @@ test('de service worker raakt /api niet aan', async ({ page, context }) => {
   }
 
   expect(genavigeerd).toBe(false)
+})
+
+// De koppeling service worker → offline-pagina → kopie, die de dev-tests niet
+// kunnen zien. Geen login nodig: de offline-weergave leest alleen de opslag.
+test('offline toont /inventory de lokale voorraad', async ({ page, context }) => {
+  await page.goto(landing.en)
+  await wachtOpServiceWorker(page)
+
+  const kopie: Kopie = {
+    versie: 1,
+    eigenaar: '00000000-0000-0000-0000-000000000001',
+    huishouden: { id: 'h1', naam: 'Kelderhuis' },
+    bewaardOp: new Date().toISOString(),
+    plaatsen: [{ id: 'p1', name: 'Kelder', kind: 'pantry' }],
+    items: [{
+      id: 'i1', productId: 'pr1', naam: 'Passata uit de kelder', getoondeTaal: 'en', merk: null,
+      storagePlaceId: 'p1', amount: 1, unit: 'stuk', acquiredAt: '2026-10-01', expiresAt: null,
+      createdAt: '2026-10-01T10:00:00Z',
+    }],
+  }
+  await page.evaluate(([s, k]) => localStorage.setItem(s, k), [KOPIE_SLEUTEL, JSON.stringify(kopie)] as const)
+
+  await context.setOffline(true)
+  await page.goto(routePath('inventory', 'en'))
+  await expect(page.getByText(en.offline.title)).toBeVisible()
+  await expect(page.getByText('Passata uit de kelder')).toBeVisible()
 })
