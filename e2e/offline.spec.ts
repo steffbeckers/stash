@@ -250,6 +250,43 @@ test('een verversing tijdens een verzending zet het afgestreepte item niet terug
   await expect(groep(page, 'Pantry', a)).toContainText('×1')
 })
 
+test('na een online afstreping en ongedaanmaking klopt de kopie, ook als de verversing faalt', async ({ page }) => {
+  const naam = `Online${Date.now()}`
+  await maakHuishoudenMet(page, 'offline-online', 'Otto', [{ naam, aantal: 1 }])
+  const namenInKopie = () =>
+    page.evaluate((s) => {
+      const kopie = JSON.parse(localStorage.getItem(s) ?? 'null')
+      return kopie ? kopie.items.map((i: { naam: string }) => i.naam) : null
+    }, KOPIE_SLEUTEL)
+  expect(await namenInKopie()).toContain(naam)
+
+  // Alleen de eerstvolgende verversing faalt. Een serverfout en geen
+  // netwerkfout: fetchWithRetry van @nuxtjs/supabase probeert die laatste
+  // opnieuw, en dan zou de verversing toch slagen.
+  const verversingFaaltEenKeer = () =>
+    page.route(
+      '**/rest/v1/rpc/voorraad',
+      (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 'XX000', message: 'kapot' }) }),
+      { times: 1 },
+    )
+  const verversingMislukt = page.getByText(en.inventory.refreshFailed, { exact: true })
+
+  await verversingFaaltEenKeer()
+  await streepAf(page, naam)
+  // De muis op de toast pauzeert hem: de knop Ongedaan maken blijft staan.
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+  await expect(verversingMislukt).toBeVisible()
+  expect(await namenInKopie()).not.toContain(naam)
+
+  // Ongedaan maken zet het item terug in de kopie vóór de verversing begint.
+  await verversingFaaltEenKeer()
+  const tweedeVerversing = page.waitForResponse((r) => r.url().includes('/rest/v1/rpc/voorraad'))
+  await ongedaan.click()
+  expect((await tweedeVerversing).status()).toBe(500)
+  expect(await namenInKopie()).toContain(naam)
+})
+
 test('een serverfout komt niet in de wachtrij', async ({ page }) => {
   const naam = `Fout${Date.now()}`
   await maakHuishoudenMet(page, 'offline-fout', 'Fien', [{ naam, aantal: 2 }])

@@ -104,6 +104,25 @@ export function useOfflineVoorraad() {
     return gevonden
   }
 
+  /**
+   * Na een geslaagde online afstreping of ongedaanmaking: de kopie meteen
+   * bijwerken. Faalt de verversing daarna, dan klopt de kopie toch, en toont
+   * de offline-pagina geen afgestreept item als in voorraad (of omgekeerd).
+   */
+  function streepAfInDeKopie(itemId: string): void {
+    schrijf((o) => {
+      const k = leesKopie(o)
+      if (k) schrijfKopie(o, streepAfInKopie(k, itemId))
+    })
+  }
+
+  function zetTerugInDeKopie(item: VoorraadItem): void {
+    schrijf((o) => {
+      const k = leesKopie(o)
+      if (k) schrijfKopie(o, zetTerugInKopie(k, item))
+    })
+  }
+
   function ruimOp(gebruikerId: string): void {
     schrijf((o) => {
       const r = ruimOpVoor(leesKopie(o), leesWachtrij(o), gebruikerId)
@@ -152,5 +171,18 @@ export function useOfflineVoorraad() {
     return lopend ?? Promise.resolve()
   }
 
-  return { kopie, wachtrij, bewaar, zetInWachtrij, haalUitWachtrij, ruimOp, wis, wachtendVoorMij, verstuur, wachtOpVerzending }
+  return {
+    kopie,
+    wachtrij,
+    bewaar,
+    zetInWachtrij,
+    haalUitWachtrij,
+    streepAfInDeKopie,
+    zetTerugInDeKopie,
+    ruimOp,
+    wis,
+    wachtendVoorMij,
+    verstuur,
+    wachtOpVerzending,
+  }
 }

@@ -57,18 +57,23 @@ async function herlaad(): Promise<void> {
 // onClick die daarnaar terugwijst zou na het ongedaan maken niets meer
 // verversen.
 async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<void> {
+  // Nu vastgelegd: na de verversing staat het item niet meer in de lijst, en
+  // ongedaan maken heeft het nodig om de kopie bij te werken.
+  const item = items.value.find((i) => i.id === itemId)
   try {
     const gelukt = await close(itemId, reden)
     if (gelukt) {
+      // Meteen, niet pas bij de verversing hieronder: faalt die, dan toont de
+      // offline-pagina het item anders nog als in voorraad.
+      offline.streepAfInDeKopie(itemId)
       toast.add({
         title: t('inventory.closed', { name: naam }),
-        actions: [{ label: t('inventory.undo'), onClick: () => { void ongedaanMaken(itemId) } }],
+        actions: [{ label: t('inventory.undo'), onClick: () => { void ongedaanMaken(itemId, item) } }],
       })
     } else {
       toast.add({ title: t('inventory.alreadyClosed'), color: 'warning' })
     }
   } catch (oorzaak) {
-    const item = items.value.find((i) => i.id === itemId)
     // zetInWachtrij() staat in de voorwaarde: lukt het bewaren niet (opslag vol),
     // dan valt dit terug op de gewone foutmelding en blijft het item in de lijst.
     if (item && isNetwerkfout(oorzaak, navigator.onLine) && offline.zetInWachtrij(item, reden)) {
@@ -97,14 +102,16 @@ async function ongedaanMakenOffline(item: VoorraadItem): Promise<void> {
     items.value = [...items.value, item]
     return
   }
-  await ongedaanMaken(item.id)
+  await ongedaanMaken(item.id, item)
 }
 
-async function ongedaanMaken(itemId: string): Promise<void> {
+async function ongedaanMaken(itemId: string, item: VoorraadItem | undefined): Promise<void> {
   try {
     // false: iemand anders zette het al terug. Herladen toont dan gewoon de
     // juiste stand; er is niets te melden.
-    await reopen(itemId)
+    const terug = await reopen(itemId)
+    // Zoals bij afstrepen: de kopie meteen, voor het geval de verversing faalt.
+    if (terug && item) offline.zetTerugInDeKopie(item)
   } catch (oorzaak) {
     toast.add({
       title: isSamenhangFout(oorzaak) ? t('inventory.cannotUndo') : t('householdSettings.error'),
@@ -128,8 +135,13 @@ onMounted(async () => {
     return
   }
   // Eerst versturen, dan laden: anders zet de server een item terug dat in de
-  // wachtrij al afgestreept is (spec §5).
-  await offline.verstuur()
+  // wachtrij al afgestreept is (spec §5). Een fout hier mag de pagina niet op
+  // haar spinner laten staan: laad() filtert wat nog wacht, dus laden kan toch.
+  try {
+    await offline.verstuur()
+  } catch (oorzaak) {
+    console.warn('[offline] versturen bij het openen mislukt', oorzaak)
+  }
   try {
     await laad()
   } catch {
