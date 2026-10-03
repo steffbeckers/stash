@@ -50,6 +50,28 @@ function leesJson(opslag: Storage, sleutel: string): unknown {
   }
 }
 
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null
+}
+
+/** Genoeg om de pagina te renderen zonder te crashen op een kapot element. */
+function isHuishouden(x: unknown): x is Kopie['huishouden'] {
+  return isRecord(x) && typeof x.id === 'string' && typeof x.naam === 'string'
+}
+
+function isPlaats(x: unknown): x is Bewaarplaats {
+  return isRecord(x) && typeof x.id === 'string' && typeof x.name === 'string'
+}
+
+function isVoorraadItem(x: unknown): x is VoorraadItem {
+  return (
+    isRecord(x) &&
+    typeof x.id === 'string' &&
+    typeof x.naam === 'string' &&
+    typeof x.storagePlaceId === 'string'
+  )
+}
+
 export function leesKopie(opslag: Storage): Kopie | null {
   const waarde = leesJson(opslag, KOPIE_SLEUTEL)
   if (typeof waarde !== 'object' || waarde === null) return null
@@ -58,10 +80,12 @@ export function leesKopie(opslag: Storage): Kopie | null {
     k.versie === 1 &&
     typeof k.eigenaar === 'string' &&
     typeof k.bewaardOp === 'string' &&
-    typeof k.huishouden === 'object' && k.huishouden !== null &&
+    isHuishouden(k.huishouden) &&
     Array.isArray(k.plaatsen) &&
     Array.isArray(k.items)
-  return geldig ? (k as Kopie) : null
+  if (!geldig) return null
+  // Kapotte elementen vallen weg in plaats van de pagina later te laten crashen.
+  return { ...(k as Kopie), plaatsen: k.plaatsen!.filter(isPlaats), items: k.items!.filter(isVoorraadItem) }
 }
 
 function isWachtrijitem(x: unknown): x is Wachtrijitem {
@@ -141,14 +165,35 @@ export function isNetwerkfout(oorzaak: unknown, online: boolean): boolean {
 }
 
 /**
+ * Een afgebroken verzoek: postgrest-js geeft `code: ''` met een melding die met
+ * "AbortError:" begint, een rauwe fetch een fout met `name === 'AbortError'`.
+ */
+function isAfgebroken(oorzaak: unknown): boolean {
+  if (!isRecord(oorzaak)) return false
+  const { code, message, name } = oorzaak
+  if (name === 'AbortError') return true
+  return code === '' && typeof message === 'string' && message.startsWith('AbortError:')
+}
+
+/** In een omgeving zonder navigator (of zonder onLine) gaan we uit van online. */
+function standaardOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false
+}
+
+/**
  * Verstuurt in volgorde (spec §6). `sluit` is useInventory().close(): true is
  * verstuurd, false is vervallen (al afgestreept of verwijderd). Een
- * netwerkfout stopt de verzending en houdt dat item en de rest vast; een
- * andere fout laat het item vallen.
+ * netwerkfout stopt de verzending en houdt dat item en de rest vast. Dat geldt
+ * ook voor een fout terwijl het toestel offline is (`online()`, bijvoorbeeld
+ * een verlopen sessie of een proxyfout zonder verbinding) en voor een
+ * afgebroken verzoek: we weten dan niet of de server het ontving, en sluiten
+ * is idempotent, dus bewaren kost niets en laten vallen kan werk kwijtmaken.
+ * Alleen een andere fout bij een online toestel laat het item vallen.
  */
 export async function verstuurWachtrij(
   wachtrij: Wachtrij,
   sluit: (itemId: string, reden: Reden) => Promise<boolean>,
+  online: () => boolean = standaardOnline,
 ): Promise<Verzendresultaat> {
   const resultaat: Verzendresultaat = { resterend: [], verstuurd: 0, vervallen: 0, mislukt: 0 }
   for (let i = 0; i < wachtrij.length; i++) {
@@ -157,7 +202,7 @@ export async function verstuurWachtrij(
       if (await sluit(item.itemId, item.reden)) resultaat.verstuurd++
       else resultaat.vervallen++
     } catch (oorzaak) {
-      if (isNetwerkfout(oorzaak, true)) {
+      if (isNetwerkfout(oorzaak, online()) || isAfgebroken(oorzaak)) {
         resultaat.resterend = wachtrij.slice(i)
         return resultaat
       }

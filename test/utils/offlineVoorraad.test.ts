@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import {
   KOPIE_SLEUTEL,
   WACHTRIJ_SLEUTEL,
@@ -11,6 +11,8 @@ import {
   streepAfInKopie,
   verstuurWachtrij,
   wachtrijVoor,
+  wisAlles,
+  wisKopie,
   zetTerugInKopie,
   type Kopie,
   type Wachtrijitem,
@@ -189,5 +191,197 @@ describe('verstuurWachtrij', () => {
       return true
     })
     expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 0, mislukt: 1 })
+  })
+})
+
+/** Een opslag waarvan lezen faalt, zoals Safari in privémodus of geblokkeerde sitegegevens. */
+class KapotteOpslag extends NepOpslag {
+  override getItem(): string | null {
+    throw new Error('opslag geblokkeerd')
+  }
+}
+
+describe('lezen crasht nooit', () => {
+  it('geeft geen kopie en een lege wachtrij als de opslag zelf gooit', () => {
+    const opslag = new KapotteOpslag()
+    expect(leesKopie(opslag)).toBeNull()
+    expect(leesWachtrij(opslag)).toEqual([])
+  })
+
+  it.each(['null', '42', '"tekst"'])('geeft geen kopie bij de opgeslagen waarde %s', (ruw) => {
+    const opslag = new NepOpslag()
+    opslag.setItem(KOPIE_SLEUTEL, ruw)
+    expect(leesKopie(opslag)).toBeNull()
+  })
+
+  it('geeft een lege wachtrij als er een object in staat in plaats van een lijst', () => {
+    const opslag = new NepOpslag()
+    opslag.setItem(WACHTRIJ_SLEUTEL, '{}')
+    expect(leesWachtrij(opslag)).toEqual([])
+  })
+
+  it('laat wachtrij-elementen weg die geen object zijn', () => {
+    const opslag = new NepOpslag()
+    opslag.setItem(WACHTRIJ_SLEUTEL, JSON.stringify([null, 'tekst', 42, inWachtrij('a')]))
+    expect(leesWachtrij(opslag).map((i) => i.itemId)).toEqual(['a'])
+  })
+
+  const kapotteWachtrijitems: [string, unknown][] = [
+    ['zonder itemId', { ...inWachtrij('x'), itemId: undefined }],
+    ['met een onbekende reden', { ...inWachtrij('x'), reden: 'opgegeten' }],
+    ['zonder eigenaar', { ...inWachtrij('x'), eigenaar: undefined }],
+    ['zonder item', { ...inWachtrij('x'), item: undefined }],
+    ['met item null', { ...inWachtrij('x'), item: null }],
+  ]
+  it.each(kapotteWachtrijitems)('laat een wachtrij-element %s weg', (_naam, kapot) => {
+    const opslag = new NepOpslag()
+    opslag.setItem(WACHTRIJ_SLEUTEL, JSON.stringify([kapot, inWachtrij('a')]))
+    expect(leesWachtrij(opslag).map((i) => i.itemId)).toEqual(['a'])
+  })
+
+  const kopieZonder: [string, Record<string, unknown>][] = [
+    ['eigenaar', { eigenaar: undefined }],
+    ['bewaardOp', { bewaardOp: undefined }],
+    ['huishouden', { huishouden: undefined }],
+    ['plaatsen', { plaatsen: undefined }],
+    ['items', { items: undefined }],
+    ['huishouden.id', { huishouden: { naam: 'Thuis' } }],
+    ['huishouden.naam', { huishouden: { id: 'h1' } }],
+    ['huishouden (null)', { huishouden: null }],
+  ]
+  it.each(kopieZonder)('geeft geen kopie zonder %s', (_naam, over) => {
+    const opslag = new NepOpslag()
+    opslag.setItem(KOPIE_SLEUTEL, JSON.stringify({ ...kopie(), ...over }))
+    expect(leesKopie(opslag)).toBeNull()
+  })
+})
+
+describe('kapotte elementen in de kopie', () => {
+  it('laat items weg die geen object zijn', () => {
+    const opslag = new NepOpslag()
+    opslag.setItem(KOPIE_SLEUTEL, JSON.stringify(kopie({ items: [null, 'tekst', item('a')] as unknown as VoorraadItem[] })))
+    expect(leesKopie(opslag)?.items).toEqual([item('a')])
+  })
+
+  it.each(['id', 'naam', 'storagePlaceId'])('laat een item zonder %s weg', (veld) => {
+    const opslag = new NepOpslag()
+    const kapot = { ...item('x'), [veld]: undefined } as unknown as VoorraadItem
+    opslag.setItem(KOPIE_SLEUTEL, JSON.stringify(kopie({ items: [kapot, item('a')] })))
+    expect(leesKopie(opslag)?.items.map((i) => i.id)).toEqual(['a'])
+  })
+
+  it('laat plaatsen weg die geen object zijn', () => {
+    const opslag = new NepOpslag()
+    const goed = { id: 'kast', name: 'Kast', kind: 'pantry' as const }
+    opslag.setItem(KOPIE_SLEUTEL, JSON.stringify(kopie({ plaatsen: [null, goed] as unknown as Kopie['plaatsen'] })))
+    expect(leesKopie(opslag)?.plaatsen).toEqual([goed])
+  })
+
+  it.each(['id', 'name'])('laat een plaats zonder %s weg', (veld) => {
+    const opslag = new NepOpslag()
+    const goed = { id: 'kast', name: 'Kast', kind: 'pantry' as const }
+    const kapot = { ...goed, id: 'x', [veld]: undefined } as unknown as Kopie['plaatsen'][number]
+    opslag.setItem(KOPIE_SLEUTEL, JSON.stringify(kopie({ plaatsen: [kapot, goed] })))
+    expect(leesKopie(opslag)?.plaatsen).toEqual([goed])
+  })
+})
+
+describe('wissen', () => {
+  function gevuldeOpslag(): NepOpslag {
+    const opslag = new NepOpslag()
+    schrijfKopie(opslag, kopie())
+    schrijfWachtrij(opslag, [inWachtrij('a')])
+    return opslag
+  }
+
+  it('wisKopie verwijdert alleen de kopie en laat de wachtrij staan', () => {
+    const opslag = gevuldeOpslag()
+    wisKopie(opslag)
+    expect(opslag.getItem(KOPIE_SLEUTEL)).toBeNull()
+    expect(leesWachtrij(opslag).length).toBe(1)
+  })
+
+  it('wisAlles verwijdert de kopie en de wachtrij', () => {
+    const opslag = gevuldeOpslag()
+    wisAlles(opslag)
+    expect(opslag.getItem(KOPIE_SLEUTEL)).toBeNull()
+    expect(opslag.getItem(WACHTRIJ_SLEUTEL)).toBeNull()
+  })
+})
+
+describe('ruimOpVoor zonder kopie', () => {
+  it('houdt de eigen wachtrij en crasht niet op een ontbrekende kopie', () => {
+    const r = ruimOpVoor(null, [inWachtrij('a', 'ada'), inWachtrij('b', 'bob')], 'ada')
+    expect(r.kopie).toBeNull()
+    expect(r.wachtrij.map((i) => i.itemId)).toEqual(['a'])
+  })
+})
+
+describe('isNetwerkfout met rare invoer', () => {
+  it.each([null, undefined, 'tekst', 42])('geeft false en crasht niet bij %s', (oorzaak) => {
+    expect(isNetwerkfout(oorzaak, true)).toBe(false)
+  })
+
+  // Pint `code === ''`: dit is een databasefout die toevallig zo begint.
+  it('herkent een databasefout niet aan een melding die met TypeError begint', () => {
+    expect(isNetwerkfout({ code: '23514', message: 'TypeError: x' }, true)).toBe(false)
+  })
+
+  it('geeft false zonder melding', () => {
+    expect(isNetwerkfout({ code: '' }, true)).toBe(false)
+  })
+})
+
+describe('verstuurWachtrij bij onzekerheid', () => {
+  const verlopen = { code: 'PGRST301', message: 'JWT expired' }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // Een proxy of captive portal kan een niet-TypeError geven terwijl we offline zijn.
+  it('houdt het item vast bij een andere fout als het toestel offline is', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async () => { throw verlopen }, () => false)
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a', 'b'])
+    expect(r.mislukt).toBe(0)
+  })
+
+  it('laat hetzelfde item vallen als het toestel online is', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw verlopen }, () => true)
+    expect(r).toEqual({ resterend: [], verstuurd: 0, vervallen: 0, mislukt: 1 })
+  })
+
+  it('gebruikt navigator.onLine als er geen online-functie is meegegeven', async () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw verlopen })
+    expect(r.resterend.length).toBe(1)
+  })
+
+  const afgebroken: [string, unknown][] = [
+    ['een supabase-fout', { code: '', message: 'AbortError: signal is aborted without reason' }],
+    ['een DOMException', { name: 'AbortError', message: 'The operation was aborted.' }],
+  ]
+  it.each(afgebroken)('houdt het item vast bij %s met een afgebroken verzoek', async (_naam, fout) => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async () => { throw fout }, () => true)
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a', 'b'])
+    expect(r.mislukt).toBe(0)
+  })
+
+  // Pint `code === ''` in de afbreekcontrole.
+  it('telt een databasefout met AbortError in de melding als mislukt', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw { code: '23514', message: 'AbortError: x' } }, () => true)
+    expect(r.mislukt).toBe(1)
+  })
+
+  // Pint de controle op een melding in de afbreekcontrole.
+  it('telt een fout zonder melding als mislukt in plaats van te crashen', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw { code: '' } }, () => true)
+    expect(r.mislukt).toBe(1)
+  })
+
+  it('crasht niet op een lege worp en telt die als mislukt', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw null }, () => true)
+    expect(r.mislukt).toBe(1)
+    expect(r.resterend).toEqual([])
   })
 })
