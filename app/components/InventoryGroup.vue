@@ -14,7 +14,13 @@ import {
   type VoorraadItem,
 } from '~/utils/voorraad'
 
-const props = defineProps<{ groep: Productgroep; plaatsen: Bewaarplaats[]; vandaag: string }>()
+const props = defineProps<{
+  groep: Productgroep
+  plaatsen: Bewaarplaats[]
+  vandaag: string
+  /** Offline: alleen afstrepen, geen bewerken of verwijderen. */
+  alleenAfstrepen?: boolean
+}>()
 const emit = defineEmits<{ afstrepen: [itemId: string, naam: string, reden: Reden]; changed: [] }>()
 const { t, locale } = useI18n()
 const toast = useToast()
@@ -144,8 +150,8 @@ async function bevestigVerwijderen() {
           </span>
           <div class="flex gap-1">
             <UButton size="xs" variant="soft" @click="afstrepenItem(item)">{{ t('inventory.closeItem') }}</UButton>
-            <UButton size="xs" variant="ghost" @click="startBewerken(item)">{{ t('inventory.edit') }}</UButton>
-            <UButton size="xs" variant="ghost" color="error" @click="teVerwijderen = item">
+            <UButton v-if="!alleenAfstrepen" size="xs" variant="ghost" @click="startBewerken(item)">{{ t('inventory.edit') }}</UButton>
+            <UButton v-if="!alleenAfstrepen" size="xs" variant="ghost" color="error" @click="teVerwijderen = item">
               {{ t('inventory.delete') }}
             </UButton>
           </div>

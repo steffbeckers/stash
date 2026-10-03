@@ -30,12 +30,15 @@ export interface Itemwijziging {
  */
 export function useInventory() {
   const supabase = useSupabaseClient()
-  const { locale } = useI18n()
+  // useNuxtApp().$i18n en niet useI18n(): deze composable draait ook in de
+  // client-plugin wachtrij.client.ts (via useOfflineVoorraad), en useI18n()
+  // hoort bovenaan een setup-functie.
+  const { $i18n } = useNuxtApp()
 
   async function load(householdId: string): Promise<VoorraadItem[]> {
     const { data, error } = await supabase.rpc('voorraad', {
       target_household: householdId,
-      voorkeurstaal: locale.value,
+      voorkeurstaal: $i18n.locale.value,
     })
     if (error) throw error
     return (data ?? []).map((r) => ({
