@@ -159,9 +159,24 @@ describe('isNetwerkfout', () => {
     expect(isNetwerkfout({ code: '42501', message: 'permission denied for table inventory_item' }, true)).toBe(false)
   })
 
-  // Zelfde lege code, maar geen netwerk: een afgebroken verzoek.
-  it('herkent een afgebroken verzoek niet als netwerkfout', () => {
-    expect(isNetwerkfout({ code: '', message: 'AbortError: signal is aborted without reason' }, true)).toBe(false)
+  // De termijn (app/utils/termijn.ts) breekt af met een AbortError; postgrest-js
+  // maakt daar `AbortError: …` met code '' van.
+  it('herkent een afgebroken verzoek als netwerkfout', () => {
+    expect(isNetwerkfout({ code: '', message: 'AbortError: signal is aborted without reason' }, true)).toBe(true)
+  })
+
+  it('herkent een rauwe AbortError als netwerkfout', () => {
+    expect(isNetwerkfout(new DOMException('afgebroken', 'AbortError'), true)).toBe(true)
+  })
+
+  // De code beslist, ook als de melding toevallig op een afbreking lijkt.
+  it('herkent een databasefout met AbortError in de melding niet als netwerkfout', () => {
+    expect(isNetwerkfout({ code: '23514', message: 'AbortError: x' }, true)).toBe(false)
+    expect(isNetwerkfout({ name: 'AbortError', code: '23514', message: 'x' }, true)).toBe(false)
+  })
+
+  it('herkent een andere DOMException niet als netwerkfout', () => {
+    expect(isNetwerkfout(new DOMException('vol', 'QuotaExceededError'), true)).toBe(false)
   })
 })
 

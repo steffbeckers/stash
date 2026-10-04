@@ -263,6 +263,26 @@ test('de voorraadpagina wacht op een verzending die de plugin al gestart had', a
   expect(await wachtrijWaarde(page)).toBeNull()
 })
 
+test('een hangende voorraad() geeft na de termijn de foutstand, na één poging', async ({ page }) => {
+  await maakHuishoudenMet(page, 'termijn-laden', 'Lars', [])
+
+  // voorraad() bereikt de server nooit. Alleen de termijn kan het afbreken.
+  let pogingen = 0
+  const { vrij, vrijgeven } = slot()
+  await page.route('**/rest/v1/rpc/voorraad', async (route) => {
+    pogingen++
+    await vrij
+    await route.abort().catch(() => {})
+  })
+  await page.reload()
+
+  // Ruim boven de termijn van 10 s, ruim onder drie pogingen van elk 10 s.
+  await expect(page.getByText(en.householdSettings.error, { exact: true })).toBeVisible({ timeout: 20_000 })
+  // Eén: de herhaallus van @nuxtjs/supabase zag dat het verzoek afgebroken was.
+  expect(pogingen).toBe(1)
+  vrijgeven()
+})
+
 test('een verversing tijdens een verzending zet het afgestreepte item niet terug', async ({ page, context }) => {
   const a = `Verzend${Date.now()}`
   const b = `Ander${Date.now()}`

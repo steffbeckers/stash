@@ -166,15 +166,18 @@ export function voegWachtrijSamen(huidig: Wachtrij, verzonden: Wachtrij, restere
  * Is dit een netwerkfout? postgrest-js vangt een mislukte fetch op en geeft
  * `{ code: '', message: `${fetchError.name}: ${fetchError.message}` }` terug
  * (node_modules/@supabase/postgrest-js/dist/index.mjs). Een mislukte fetch is
- * altijd een TypeError ("Failed to fetch", "NetworkError…", "Load failed").
- * Een afgebroken verzoek heeft ook code '', maar begint met "AbortError:".
+ * een TypeError ("Failed to fetch", "NetworkError…", "Load failed"). Een
+ * verzoek dat de termijn afbrak (app/utils/termijn.ts), is een AbortError.
  */
 export function isNetwerkfout(oorzaak: unknown, online: boolean): boolean {
   if (!online) return true
   if (oorzaak instanceof TypeError) return true
-  if (typeof oorzaak !== 'object' || oorzaak === null) return false
-  const { code, message } = oorzaak as { code?: unknown; message?: unknown }
-  return code === '' && typeof message === 'string' && message.startsWith('TypeError: ')
+  if (!isRecord(oorzaak)) return false
+  // De afgebroken fetch zelf, nog niet ingepakt door postgrest-js. Een
+  // DOMException heeft een numerieke code, een databasefout een string.
+  if (oorzaak.name === 'AbortError' && typeof oorzaak.code !== 'string') return true
+  const { code, message } = oorzaak
+  return code === '' && typeof message === 'string' && (message.startsWith('TypeError: ') || message.startsWith('AbortError: '))
 }
 
 /**
