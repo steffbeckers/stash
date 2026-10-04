@@ -172,6 +172,12 @@ verzending" bewaakt voortaan het slot en wordt rood zonder.
 - **De sessiecontrole vóór het slot** heeft geen test. Een tokenvernieuwing
   op commando laten hangen tijdens een verzending is in e2e niet betrouwbaar
   uit te lokken. Deze bewaking is gecontroleerd door de code te lezen.
+- **Het opnieuw lezen van de wachtrij binnen het slot** heeft geen e2e. Een
+  verouderde lezing doet pas kwaad als een ongedaanmaking het slot krijgt
+  tussen die lezing en de verzending, en dat vraagt drie verzendingen in een
+  vaste volgorde over twee tabbladen. De code leest de wachtrij alleen binnen
+  het slot; buiten het slot staat alleen een snelle controle op een lege
+  wachtrij, zonder dat die lezing verder gebruikt wordt.
 - **De terugval zonder Web Locks** is alleen in unit getoetst. Chromium heeft
   Web Locks altijd.
 - **Safari en iOS** worden niet automatisch getoetst.
