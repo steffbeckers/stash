@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { routePath } from '../routes.config'
 import { signIn, createHousehold, bundles, waitForHydration, openUserMenu } from './helpers'
 import { KOPIE_SLEUTEL, WACHTRIJ_SLEUTEL } from '../app/utils/offlineVoorraad'
+import { SUPABASE_TERMIJN_MS } from '../app/utils/termijn'
 
 const en = bundles.en
 
@@ -306,6 +307,32 @@ test('een hangende voorraad() geeft na de termijn de foutstand, na één poging'
   // Eén: de herhaallus van @nuxtjs/supabase zag dat het verzoek afgebroken was.
   expect(pogingen).toBe(1)
   vrijgeven()
+})
+
+test('een tokenvernieuwing valt niet onder de termijn', async ({ page }) => {
+  await maakHuishoudenMet(page, 'termijn-auth', 'Aiko', [])
+
+  // De vernieuwing hangt langer dan de termijn: alleen zo blijkt dat er geen
+  // is. Valt auth eronder, dan breekt de app haar na 10 s af en probeert
+  // auth-js opnieuw, en dat is een tweede verzoek (spec §2: een afgebroken
+  // vernieuwing die de server al verwerkte, kan de sessie wissen).
+  let verzoeken = 0
+  await page.route('**/auth/v1/token*', async (route) => {
+    verzoeken++
+    if (verzoeken === 1) await new Promise((r) => setTimeout(r, SUPABASE_TERMIJN_MS + 2000))
+    await route.continue().catch(() => {})
+  })
+
+  // Via de Supabase-client van de app zelf: een vernieuwing op commando.
+  const fout = await page.evaluate(async () => {
+    type Client = { auth: { refreshSession: () => Promise<{ error: { message: string } | null }> } }
+    const wortel = document.querySelector('#__nuxt') as unknown as { __vue_app__: { $nuxt: { $supabase: { client: Client } } } }
+    const { error } = await wortel.__vue_app__.$nuxt.$supabase.client.auth.refreshSession()
+    return error?.message ?? null
+  })
+
+  expect(fout).toBeNull()
+  expect(verzoeken).toBe(1)
 })
 
 test('een hangende afstreping komt na de termijn in de wachtrij, en ongedaan maken heropent haar op de server', async ({ page }) => {

@@ -6,6 +6,16 @@
 /** Spec §2: ruim genoeg voor een trage verbinding die werkt. */
 export const SUPABASE_TERMIJN_MS = 10_000
 
+/**
+ * De prefix van PostgREST-verzoeken, opgebouwd zoals supabase-js zijn REST-URL
+ * bouwt (`new URL('rest/v1', ensureTrailingSlash(url))`). Een URL met of
+ * zonder slash erachter geeft zo dezelfde prefix. Auth (`/auth/v1/`) valt
+ * erbuiten (spec §2).
+ */
+export function postgrestVoorvoegsel(supabaseUrl: string): string {
+  return new URL('rest/v1/', supabaseUrl.endsWith('/') ? supabaseUrl : `${supabaseUrl}/`).href
+}
+
 function urlVan(invoer: RequestInfo | URL): string {
   if (typeof invoer === 'string') return invoer
   if (invoer instanceof URL) return invoer.href
