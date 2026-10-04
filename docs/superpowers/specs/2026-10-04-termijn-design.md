@@ -9,15 +9,16 @@ verzending die niet eindigt. De offline-ronde
 haar garantie: een ongedaanmaking tijdens een verzending gaat niet verloren.
 Zie de rij "zonder timeout" in `docs/superpowers/open-bevindingen.md`.
 
-Deze spec begrenst elk Supabase-verzoek in de browser op 10 seconden. De
-garantie blijft daarbij overeind: wie een afstreping ongedaan maakt waarvan
-niemand weet of de server ze kreeg, heropent haar ook op de server.
+Deze spec begrenst elk PostgREST-verzoek (`/rest/v1/`) in de browser op 10
+seconden. De garantie blijft daarbij overeind: wie een afstreping ongedaan
+maakt waarvan niemand weet of de server ze kreeg, heropent haar ook op de
+server.
 
 ## 1. Wat dit oplevert, en wat niet
 
 **Wel:**
-- Elk Supabase-verzoek uit de browser, of het nu een tabel, een RPC of auth
-  is, telt na 10 s zonder antwoord als netwerkfout.
+- Elk PostgREST-verzoek uit de browser (`/rest/v1/`), of het nu een tabel of
+  een RPC is, telt na 10 s zonder antwoord als netwerkfout.
 - Een afstreping die op de termijn stuit, komt in de wachtrij.
 - De voorraadpagina toont haar foutstand in plaats van een spinner die
   nooit verdwijnt.
@@ -26,17 +27,22 @@ niemand weet of de server ze kreeg, heropent haar ook op de server.
 **Niet:**
 - **SSR.** Verzoeken vanuit de server krijgen geen termijn. Ze lopen over het
   netwerk van de host, niet over dat van de gebruiker.
-- **Het herhaalbeleid van auth-js.** Een mislukte tokenvernieuwing probeert
-  auth-js zelf opnieuw, zolang er minder dan 30 s verstreken is (§9).
+- **Auth-verzoeken.** Breekt de termijn een tokenvernieuwing af die de
+  server al verwerkte, dan probeert auth-js opnieuw met het oude
+  refresh-token. Dat is dan geroteerd, en buiten de reuse-interval van 10 s
+  (`supabase/config.toml`) antwoordt GoTrue "already used". Is het
+  access-token verlopen, dan wist auth-js de sessie, en is de gebruiker
+  uitgelogd. Ook verify en de PKCE-uitwisseling lukken maar één keer. Een
+  hangende tokenvernieuwing blokkeert dus zoals vóór deze spec (§8).
 - **Twee tabbladen.** Die blijven zoals ze zijn (open-bevindingen).
 
 ## 2. De beslissingen
 
 | Beslissing | Waarom | Kosten als het fout is |
 |---|---|---|
-| Eén termijn voor alle Supabase-verzoeken, niet alleen de offline-wachtpunten | Een gewone afstreping of het laden van de lijst hangt bij slecht signaal net zo goed. De app doet geen uploads, realtime of edge functions: alles is een klein REST- of auth-verzoek. | Komen er ooit uploads bij, dan hebben die een eigen, langere termijn nodig. |
+| Eén termijn voor alle PostgREST-verzoeken, niet alleen de offline-wachtpunten | Een gewone afstreping of het laden van de lijst hangt bij slecht signaal net zo goed. De app doet geen uploads, realtime of edge functions: alles wat de termijn raakt, is een klein REST-verzoek. | Komen er ooit uploads bij, dan hebben die een eigen, langere termijn nodig. |
 | 10 seconden | Ruim genoeg voor een trage mobiele verbinding die wél werkt, en voor een koude start van de database. Kort genoeg om niet lang naar een spinner te kijken. | Een verbinding die trager is dan 10 s maar wel werkt, valt terug op de wachtrij. Afstrepen is idempotent, dus dat kost alleen een verzending later. |
-| `window.fetch` omwikkelen, alleen voor de Supabase-URL | `@nuxtjs/supabase` maakt de client aan met zijn eigen `fetchWithRetry`, en een `fetch` kan niet via de runtimeconfig. Die `fetchWithRetry` roept bij elk verzoek de globale `fetch` aan. Eén plek dekt zo tabellen, RPC's én auth. Een hangende tokenvernieuwing houdt via de auth-lock elk verzoek erachter tegen, dus auth moet erbij. | Een globale `fetch` vervangen is een ingreep. Het voorvoegsel houdt Nuxts `$fetch` en al het andere erbuiten. |
+| `window.fetch` omwikkelen, alleen voor `${url}/rest/v1/` | `@nuxtjs/supabase` maakt de client aan met zijn eigen `fetchWithRetry`, en een `fetch` kan niet via de runtimeconfig. Die `fetchWithRetry` roept bij elk verzoek de globale `fetch` aan. Eén plek dekt zo tabellen en RPC's. Auth valt erbuiten: een afgebroken tokenvernieuwing die de server al verwerkte, kan de sessie wissen (§1). | Een globale `fetch` vervangen is een ingreep. Het voorvoegsel houdt auth, Nuxts `$fetch` en al het andere erbuiten. Een hangende tokenvernieuwing houdt via de auth-lock elk verzoek erachter tegen, zoals vóór deze spec. |
 | Afbreken met een eigen `AbortController`, niet met `AbortSignal.timeout` | `AbortSignal.timeout` geeft een `TimeoutError`, en die probeert postgrest-js bij een GET tot drie keer opnieuw. Een gewone `abort()` geeft een `AbortError`, en die herhaalt het nooit. | Geen: het verschil zit alleen in de naam van de fout. |
 | Het signaal op het `init`-object zetten | De herhaallus van `@nuxtjs/supabase` stopt alleen als `init.signal.aborted` waar is. Anders probeert hij elke afgebroken poging nog twee keer, telkens met een nieuwe termijn. | Verandert de module haar lus, dan duurt een hangend verzoek weer langer. De e2e-test telt de pogingen en wordt dan rood (§8, test 6). |
 | Een onzekere afstreping wordt bij ongedaan maken ook op de server heropend | Na een termijn of een verbroken verbinding weet niemand of de server de afstreping kreeg. Alleen uit de wachtrij halen kan dan een ongedaanmaking verliezen. `reopen()` filtert op `status = 'closed'`, dus had de server haar niet, dan raakt het niets. | Streepte een huisgenoot het item intussen zelf af, dan heropent dit die afstreping. Dat is dezelfde soort fout als de bestaande bevinding over vervallen verzendingen. |
@@ -75,15 +81,18 @@ Per aanroep `(invoer, init)`:
 `app/plugins/termijn.client.ts`:
 
 ```ts
-window.fetch = metTermijn(window.fetch.bind(window), useRuntimeConfig().public.supabase.url, SUPABASE_TERMIJN_MS)
+const { url } = useRuntimeConfig().public.supabase
+window.fetch = metTermijn(window.fetch.bind(window), `${url}/rest/v1/`, SUPABASE_TERMIJN_MS)
 ```
 
 Alleen in de browser. Supabase-js en de module roepen de globale `fetch` pas
-op het moment van het verzoek aan. De plugin moet wel draaien vóór die van
-`@nuxtjs/supabase`, want die vraagt bij het opstarten al de sessie op, wat
-een tokenvernieuwing kan zijn. De supabase-plugin heeft `enforce: 'pre'`,
-wat in Nuxt orde −20 is (`internalOrderMap` in
-`node_modules/nuxt/dist/index.mjs`). De termijn-plugin krijgt `order: -25`.
+op het moment van het verzoek aan, dus de volgorde van de plugins doet er
+niet toe. Het voorvoegsel is `/rest/v1/` en niet de hele Supabase-URL: auth
+valt erbuiten (§1).
+
+Herhaalt de lus van `@nuxtjs/supabase` een poging na een `TypeError` met
+hetzelfde `init`, dan volgt die poging via `init.signal` de termijn van de
+eerste. Het hele verzoek, alle pogingen samen, blijft dus binnen 10 s.
 
 **Wat de app ziet.** postgrest-js maakt van een `AbortError` deze fout:
 
@@ -108,37 +117,43 @@ staan (offline-spec §6).
 | Handeling | Na 10 s zonder antwoord |
 |---|---|
 | Online afstrepen (`close` in `afstrepen`) | Netwerkfout. De afstreping gaat in de wachtrij, met de bestaande toast en Ongedaan maken, en is **onzeker** (§5). Kreeg de server haar toch, dan valt ze bij het versturen stil weg als vervallen. |
-| Wachtrij versturen | Het item blijft staan en de rest wacht ook, zoals nu. Het item is onzeker als het toestel online was (§5). |
+| Wachtrij versturen | Het item blijft staan en de rest wacht ook, zoals nu. Het item is onzeker als het toestel vóór de poging online was (§5). |
 | Voorraad openen | `verstuur()` eindigt zoals hierboven, dan volgt `laad()`. Hangt ook dat, dan toont de pagina na 10 s haar bestaande foutstand. |
 | Verversen na een handeling | De bestaande toast `inventory.refreshFailed`. |
 | Online ongedaan maken (`reopen` in `ongedaanMaken`) | De bestaande foutmelding. |
 
 ## 5. Onzeker verstuurd
 
-Een afstreping is **onzeker** als haar laatste verzendpoging faalde zonder
-antwoord van de server, terwijl `navigator.onLine` waar was. De server kan
-haar dan gekregen hebben: bij een termijn, maar ook bij een verbinding die
-wegvalt midden in het antwoord.
+Een afstreping is **onzeker** als een verzendpoging faalde zonder antwoord
+van de server, terwijl het toestel vóór die poging online was. De server
+kan haar dan gekregen hebben: bij een termijn, maar ook bij een verbinding
+die wegvalt midden in het antwoord. Daarom telt de online-status van vóór de
+poging, niet die in de `catch`: valt de verbinding weg midden in het
+antwoord, dan is `navigator.onLine` daar al onwaar.
 
 Ze is zeker niet verstuurd in twee gevallen:
-- **De poging faalde terwijl het toestel offline was.**
+- **Het toestel was vóór de poging al offline.**
 - **De fout heeft een niet-lege string als `code`**, zoals `42501` of
   `PGRST301`. Dan antwoordde de server en weigerde hij.
 
 - **`verstuurWachtrij`** krijgt in haar resultaat een veld
   `onzeker: string | null`. Dat is het `itemId` van het item waarvan de
-  poging faalde, als `online()` op dat moment waar was, de fout geen
+  poging faalde, als `online()` vóór die poging waar was, de fout geen
   niet-lege `code` had, en het item daardoor blijft staan. In alle andere
   gevallen is het `null`: offline, een fout met een code, een definitieve
-  fout, of geen fout.
+  fout, of geen fout. Of het item blijft staan of definitief valt, beslist
+  nog altijd `online()` in de `catch` (offline-spec §6).
 - **`useOfflineVoorraad`** houdt een `Set<string>` met onzekere item-id's bij,
   op moduleniveau naast `lopend`.
-  - `verstuurNu` haalt elk item uit de set dat niet meer in `r.resterend`
-    staat (verstuurd, vervallen of mislukt), en voegt daarna `r.onzeker` toe.
-  - `zetInWachtrij(item, reden, { onzeker })` markeert het item als de
-    aanroeper dat vraagt. `afstrepen` op de voorraadpagina doet dat als
-    `navigator.onLine` waar was toen `close()` faalde.
-  - `haalUitWachtrij` haalt het item eruit.
+  - `verstuurNu` voegt `r.onzeker` toe.
+  - `zetInWachtrij(item, reden, { onzeker })` zet het merk als de aanroeper
+    dat vraagt, en wist het anders. Zo erft een nieuwe, zekere afstreping
+    nooit het merk van een vorige. `afstrepen` op de voorraadpagina vraagt
+    het als `navigator.onLine` waar was vóór `close()`, en de fout geen
+    niet-lege `code` had.
+  - Het merk blijft staan zolang het item in de wachtrij staat, en verder
+    wordt het niet gewist. De set groeit met één id per onzekere verzending,
+    en dat is verwaarloosbaar.
 
 ## 6. Ongedaan maken
 
@@ -201,6 +216,7 @@ de server de afstreping intussen echt.
 | Een signaal van de aanroeper breekt nog steeds af, ook als het al afgebroken was | Het eigen signaal laten vallen |
 | Na de aanroep is `init.signal` het signaal dat afbreekt | De toewijzing weghalen |
 | Een `Request`-object als invoer wordt herkend | Alleen strings lezen |
+| Een `URL`-object als invoer wordt herkend | De `URL`-tak weghalen |
 
 ### Unit — `test/utils/offlineVoorraad.test.ts`
 
@@ -209,6 +225,7 @@ de server de afstreping intussen echt.
 | `isNetwerkfout` is waar voor `{ code: '', message: 'AbortError: …' }` en voor een `DOMException` met de naam `AbortError` | De nieuwe tak weghalen |
 | `isNetwerkfout` is onwaar voor `AbortError: ` mét een databasecode | De codecontrole weghalen |
 | `verstuurWachtrij` geeft als `onzeker` het id van het item dat online faalde | Het veld niet zetten |
+| `verstuurWachtrij` geeft het item ook als `onzeker` als het toestel pas tijdens de poging offline ging | De online-status in de `catch` lezen |
 | `onzeker` is `null` als het offline faalde, bij een fout met een code (`42501`), bij een definitieve fout en bij succes | Het veld altijd zetten; de codecontrole weghalen |
 
 ### End-to-end — `e2e/offline.spec.ts`
@@ -233,6 +250,16 @@ de server de afstreping intussen echt.
    plugin, en zonder de toewijzing aan `init.signal`.
 7. **Op de offline-pagina** heropent het ongedaan maken van een onzekere
    afstreping ook. Rood als de offline-pagina haar oude logica houdt.
+8. **Faalt daar ook het heropenen**, dan verschijnt `undoUnconfirmed` op de
+   offline-pagina. Rood zonder die melding in `OfflineVoorraad.vue`.
+9. **Een verbinding die wegvalt midden in een afstreping** maakt haar
+   onzeker. Een antwoord met een databasecode en daarna offline maakt haar
+   niet onzeker. Rood als `afstrepen` de online-status in de `catch` leest,
+   of de codecontrole mist.
+10. **Een opnieuw afgestreept item erft het onzeker-merk niet.** Rood als
+    `zetInWachtrij` het merk niet wist.
+11. **Een verversing tijdens het heropenen** zet het item niet dubbel terug.
+    Rood als `ongedaanMakenOffline` niet eerst filtert.
 
 Test 1 en 2 zijn één test: dezelfde hangende afstreping, eerst in de
 wachtrij, dan ongedaan gemaakt. Zo kost dat één termijn in plaats van twee.
@@ -245,14 +272,14 @@ in de bestaande race-tests. Zo pauzeert hun timer van 5 s.
 - **Safari en iOS** worden niet automatisch getoetst. Playwright's WebKit
   is geen echte iOS-PWA. De meldingtekst van een `AbortError` verschilt per
   browser, maar de naam niet, en daarop toetst `isNetwerkfout`.
-- **Een hangende tokenvernieuwing.** auth-js probeert die zelf opnieuw
-  zolang er minder dan 30 s verstreken is. Met de termijn per poging duurt
-  ze in het slechtste geval ongeveer 40 s, in plaats van onbegrensd.
+- **Een hangende tokenvernieuwing** blokkeert zoals vóór deze spec, omdat
+  auth buiten de termijn valt (§1). Via de auth-lock houdt ze elk verzoek
+  erachter tegen.
 
 ## 9. Wat hier niet in zit
 
 - Een termijn voor SSR-verzoeken.
-- Het herhaalbeleid van auth-js bij een tokenvernieuwing.
+- Een termijn voor auth-verzoeken (§1).
 - Coördinatie tussen tabbladen.
 - Een termijn per soort verzoek.
 
@@ -268,3 +295,12 @@ in de bestaande race-tests. Zo pauzeert hun timer van 5 s.
 | `i18n/locales/*.json` | `offlineVoorraad.undoUnconfirmed` in de drie talen. |
 | `docs/superpowers/open-bevindingen.md` | De rij "zonder timeout" verdwijnt. Het risico van de huisgenoot komt bij de rij over vervallen verzendingen. |
 | `docs/superpowers/specs/2026-10-03-offline-voorraad-design.md` | §6 krijgt een verwijzing naar deze spec. |
+
+## 11. Afwijkingen tijdens de uitvoering
+
+| Wat | Waarom |
+|---|---|
+| **De termijn geldt alleen voor PostgREST**, niet voor auth. Het voorvoegsel is `${url}/rest/v1/`; `order: -25` vervalt. | Breekt de termijn een tokenvernieuwing af die de server al verwerkte, dan probeert auth-js opnieuw met een refresh-token dat al geroteerd is. Buiten de reuse-interval van 10 s antwoordt GoTrue "already used", en is het access-token verlopen, dan wist auth-js de sessie. Verify en de PKCE-uitwisseling lukken maar één keer. |
+| **Onzeker hangt af van de online-status vóór de poging**, in `verstuurWachtrij` en in `afstrepen`. | Valt de verbinding weg midden in het antwoord, dan is het toestel in de `catch` al offline. De afstreping telde dan als zeker, terwijl de server haar kan hebben, en ongedaan maken ging stil verloren. |
+| **Elke nieuwe wachtrij-ingang zet het merk of wist het** (`zetInWachtrij`). De deletes in `haalUitWachtrij` en `verstuurNu` vervallen. | Het merk werd alleen toegevoegd. Na uitloggen en weer inloggen, of na `ruimOp`, kon een oud merk blijven staan, en dan erfde een latere, zekere afstreping van hetzelfde item het. Haar ongedaanmaking stuurde dan een `reopen`: offline een valse `undoUnconfirmed`, online mogelijk de heropening van de afstreping van een huisgenoot. |
+| **`ongedaanMakenOffline` filtert het item eerst uit de lijst** voor het terugzetten. | Het terugzetten volgt op een `reopen` van tot 10 s. Een verversing in dat venster kan het item al bevatten, en dan stond het er twee keer. |
