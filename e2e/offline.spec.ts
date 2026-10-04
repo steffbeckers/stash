@@ -510,8 +510,11 @@ test('een verversing tijdens het heropenen zet het item niet dubbel terug', asyn
   ])
 
   // De eerste PATCH (a sluiten) komt aan maar blijft hangen tot na de termijn.
-  // De tweede (a heropenen) komt aan, en haar antwoord wacht op de test.
-  // Elke volgende gaat door.
+  // De tweede (a heropenen) komt aan, maar de pagina krijgt een fout met een
+  // code terug zodra de test vrijgeeft: de uitkomst is dan 'nietBevestigd', en
+  // de toast undoUnconfirmed volgt in hetzelfde synchrone blok als het
+  // terugzetten. Die toast is het signaal dat het item terug is.
+  // Elke volgende PATCH gaat door.
   const afstreping = slot()
   const heropening = slot()
   let opServer!: () => void
@@ -522,9 +525,14 @@ test('een verversing tijdens het heropenen zet het item niet dubbel terug', asyn
     pogingen++
     if (pogingen > 2) return route.fallback()
     const antwoord = await route.fetch()
-    if (pogingen === 2) opServer()
-    await (pogingen === 1 ? afstreping.vrij : heropening.vrij)
-    await route.fulfill({ response: antwoord }).catch(() => {})
+    if (pogingen === 1) {
+      await afstreping.vrij
+      await route.fulfill({ response: antwoord }).catch(() => {})
+      return
+    }
+    opServer()
+    await heropening.vrij
+    await route.fulfill({ status: 400, json: { code: '22P02', message: 'testfout na de heropening' } }).catch(() => {})
   })
 
   await streepAf(page, a)
@@ -540,12 +548,9 @@ test('een verversing tijdens het heropenen zet het item niet dubbel terug', asyn
   await expect(groep(page, 'Pantry', b)).toBeHidden()
   await expect(groep(page, 'Pantry', a)).toContainText('×2')
 
-  // Binnen de termijn vrijgeven. Pas als het antwoord helemaal binnen is en
-  // de pagina daarna een taak verder is, heeft ze het item teruggezet.
-  const heropend = page.waitForResponse((r) => isPatch(new URL(r.url()), r.request().method()) && r.url().includes('status=eq.closed'))
+  // Binnen de termijn vrijgeven. Zodra de toast er is, staat a terug.
   heropening.vrijgeven()
-  await (await heropend).finished()
-  await page.evaluate(() => new Promise((r) => setTimeout(r, 0)))
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toBeVisible()
   await expect(groep(page, 'Pantry', a)).toContainText('×2')
   await expect(groep(page, 'Pantry', a)).not.toContainText('×3')
   afstreping.vrijgeven()
