@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
-import { metTermijn } from '../../app/utils/termijn'
+import { metTermijn, postgrestVoorvoegsel } from '../../app/utils/termijn'
 
 const SUPABASE = 'https://abc.supabase.co'
 
@@ -107,5 +107,28 @@ describe('metTermijn', () => {
 
     eigen.abort()
     expect(signaal(aanroepen).aborted).toBe(true)
+  })
+})
+
+describe('postgrestVoorvoegsel', () => {
+  // Zoals supabase-js zijn REST-URL bouwt: een slash achter de URL maakte de
+  // prefix anders `…//rest/v1/`, en dan matchte niets en viel de termijn stil weg.
+  it('geeft dezelfde prefix met en zonder slash achter de URL', () => {
+    expect(postgrestVoorvoegsel(SUPABASE)).toBe(`${SUPABASE}/rest/v1/`)
+    expect(postgrestVoorvoegsel(`${SUPABASE}/`)).toBe(`${SUPABASE}/rest/v1/`)
+  })
+
+  // Spec §2: een afgebroken tokenvernieuwing kan de sessie wissen.
+  it('laat met die prefix auth ongemoeid en breekt PostgREST wel af', async () => {
+    const { fetch, aanroepen } = hangendeFetch()
+    const omwikkeld = metTermijn(fetch, postgrestVoorvoegsel(SUPABASE), 100)
+    const authInit: RequestInit = { method: 'POST' }
+    void omwikkeld(`${SUPABASE}/auth/v1/token?grant_type=refresh_token`, authInit).catch(() => {})
+    void omwikkeld(`${SUPABASE}/rest/v1/inventory_item`, { method: 'PATCH' }).catch(() => {})
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(aanroepen[0]!.init).toBe(authInit)
+    expect(authInit.signal).toBeUndefined()
+    expect(signaal(aanroepen, 1).aborted).toBe(true)
   })
 })

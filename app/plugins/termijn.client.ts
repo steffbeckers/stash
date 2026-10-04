@@ -1,4 +1,4 @@
-import { metTermijn, SUPABASE_TERMIJN_MS } from '~/utils/termijn'
+import { metTermijn, postgrestVoorvoegsel, SUPABASE_TERMIJN_MS } from '~/utils/termijn'
 
 /**
  * Elk PostgREST-verzoek uit de browser (`/rest/v1/`) telt na de termijn als
@@ -12,5 +12,5 @@ import { metTermijn, SUPABASE_TERMIJN_MS } from '~/utils/termijn'
  */
 export default defineNuxtPlugin(() => {
   const { url } = useRuntimeConfig().public.supabase
-  window.fetch = metTermijn(window.fetch.bind(window), `${url}/rest/v1/`, SUPABASE_TERMIJN_MS)
+  window.fetch = metTermijn(window.fetch.bind(window), postgrestVoorvoegsel(url), SUPABASE_TERMIJN_MS)
 })
