@@ -805,6 +805,72 @@ test('faalt het heropenen op de offline-pagina, dan zegt ongedaan maken dat het 
   vast.vrijgeven()
 })
 
+/**
+ * Een tweede tabblad met de offline-pagina, online geopend. Afstrepen daar
+ * komt altijd zeker in de wachtrij, zonder verzoek naar de server. Dit
+ * tabblad krijgt geen online-event, dus verstuurt het niet uit zichzelf: dat
+ * zou het verschil verbergen. Een `TOKEN_REFRESHED`/`SIGNED_IN` in tabblad 2
+ * zou dat wel doen, maar met het slot wacht die verzending of vindt ze niets.
+ */
+async function tweedeTabbladMetAfstreping(page: Page, naam: string): Promise<Page> {
+  const tab2 = await page.context().newPage()
+  await tab2.goto(routePath('offline', 'en'))
+  await expect(groep(tab2, 'Pantry', naam)).toContainText('×2')
+  await streepAf(tab2, naam)
+  await expect(tab2.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+  // De muis op de toast pauzeert zijn timer: hij moet de verzending overleven.
+  await tab2.getByRole('button', { name: en.inventory.undo }).hover()
+  return tab2
+}
+
+test('ongedaan maken in een ander tabblad wacht op de verzending van dit tabblad', async ({ page }) => {
+  const naam = `Tabblad${Date.now()}`
+  await maakHuishoudenMet(page, 'tabbladen-wacht', 'Tim', [{ naam, aantal: 2 }])
+  const tab2 = await tweedeTabbladMetAfstreping(page, naam)
+
+  // Tabblad 1 verstuurt; zijn PATCH zit vast tot de test hem vrijgeeft.
+  const { vrij, vrijgeven } = slot()
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
+    await vrij
+    await route.continue()
+  })
+  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await verzonden
+
+  // Tabblad 2 maakt ongedaan terwijl tabblad 1 verstuurt. Zonder slot haalt het
+  // de ingang meteen weg, terwijl de server de afstreping zo meteen toch krijgt.
+  await tab2.getByRole('button', { name: en.inventory.undo }).click()
+  vrijgeven()
+  await expect(tab2.getByText(en.offlineVoorraad.alreadySent, { exact: true })).toBeVisible()
+
+  await page.reload()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('een onzekere verzending van een ander tabblad wordt bij ongedaan maken heropend', async ({ page }) => {
+  const naam = `Tabbladonzeker${Date.now()}`
+  await maakHuishoudenMet(page, 'tabbladen-onzeker', 'Toon', [{ naam, aantal: 2 }])
+  const tab2 = await tweedeTabbladMetAfstreping(page, naam)
+
+  // Tabblad 1 verstuurt: de server krijgt de afstreping, tabblad 1 het antwoord
+  // niet. Na de termijn is ze onzeker, en dat merk moet tabblad 2 zien.
+  const vast = await houdEersteAfstrepingVast(page)
+  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await verzonden
+
+  await tab2.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(groep(tab2, 'Pantry', naam)).toContainText('×2', { timeout: 20_000 })
+
+  vast.vrijgeven()
+  await page.reload()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
 test('lukt het bewaren in de wachtrij niet op de offline-pagina, dan is het een gewone fout', async ({ page }) => {
   const naam = `Vol${Date.now()}`
   await openOfflinePagina(page, 'offline-pagina-vol', naam)

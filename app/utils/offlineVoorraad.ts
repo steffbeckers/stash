@@ -29,6 +29,13 @@ export interface Wachtrijitem {
   afgestreeptOp: string
   /** Om ongedaan maken terug te kunnen zetten in de kopie. */
   item: VoorraadItem
+  /**
+   * De laatste verzendpoging faalde zonder antwoord van de server terwijl het
+   * toestel vooraf online was: misschien kreeg de server de afstreping toch
+   * (spec termijn §5). In de ingang en niet in het geheugen, zodat elk
+   * tabblad het ziet (spec twee-tabbladen §4). Alleen precies true telt.
+   */
+  onzeker?: true
 }
 
 export type Wachtrij = Wachtrijitem[]
@@ -165,6 +172,36 @@ export function ruimOpVoor(
 export function voegWachtrijSamen(huidig: Wachtrij, verzonden: Wachtrij, resterend: Wachtrij): Wachtrij {
   const zelfde = (a: Wachtrijitem, b: Wachtrijitem) => a.itemId === b.itemId && a.afgestreeptOp === b.afgestreeptOp
   return huidig.filter((i) => !verzonden.some((v) => zelfde(v, i)) || resterend.some((r) => zelfde(r, i)))
+}
+
+/**
+ * Zet het onzeker-merk op precies de ingang van deze afstreping: hetzelfde
+ * itemId én afgestreeptOp, zoals voegWachtrijSamen een ingang herkent. Een
+ * opnieuw afgestreepte ingang van hetzelfde item blijft ongemoeid.
+ */
+export function markeerOnzeker(wachtrij: Wachtrij, ingang: Wachtrijitem): Wachtrij {
+  return wachtrij.map((w) =>
+    w.itemId === ingang.itemId && w.afgestreeptOp === ingang.afgestreeptOp ? { ...w, onzeker: true } : w,
+  )
+}
+
+export const WACHTRIJ_SLOT = 'stash.wachtrij'
+
+/**
+ * Doet `werk` onder het wachtrijslot (spec twee-tabbladen §3). Met Web Locks
+ * is dat slot exclusief over alle tabbladen van deze oorsprong, en laat een
+ * tabblad dat sluit het vanzelf los. Zonder Web Locks eerst wachten op
+ * `anders`: in de app is dat de verzending in het eigen tabblad, het gedrag
+ * van vóór het slot.
+ */
+export async function metWachtrijslot<T>(
+  locks: LockManager | undefined,
+  anders: () => Promise<unknown>,
+  werk: () => T | Promise<T>,
+): Promise<T> {
+  if (locks) return locks.request(WACHTRIJ_SLOT, () => werk()) as Promise<T>
+  await anders()
+  return werk()
 }
 
 /**

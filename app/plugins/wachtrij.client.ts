@@ -29,8 +29,10 @@ export default defineNuxtPlugin(() => {
   // Verliep de sessie terwijl het toestel offline was, dan verstuurt
   // verstuur() niets (zie verstuurNu). Vernieuwt dezelfde gebruiker daarna
   // zijn token, dan vuurt de watcher hierboven niet: user.sub verandert niet.
-  // Daarom hier opnieuw versturen. Niet awaiten: deze callback draait binnen
-  // de auth-lock van supabase-js, en verstuur() vraagt zelf de sessie op.
+  // Daarom hier opnieuw versturen. Niet awaiten: auth-js wacht op elke
+  // callback voor het de vernieuwing afrondt (auth-js is standaard zonder
+  // slot, maar _notifyAllSubscribers awaitet de callbacks), en verstuur()
+  // vraagt zelf de sessie op, dus zou op diezelfde vernieuwing wachten.
   supabase.auth.onAuthStateChange((event) => {
     if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') void offline.verstuur()
   })

@@ -2,9 +2,12 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import {
   KOPIE_SLEUTEL,
   WACHTRIJ_SLEUTEL,
+  WACHTRIJ_SLOT,
   isNetwerkfout,
   leesKopie,
   leesWachtrij,
+  markeerOnzeker,
+  metWachtrijslot,
   ruimOpVoor,
   schrijfKopie,
   schrijfWachtrij,
@@ -529,5 +532,87 @@ describe('voegWachtrijSamen', () => {
   it('raakt de wachtrij van een andere gebruiker niet', () => {
     const vreemd = inWachtrij('v', 'bob')
     expect(voegWachtrijSamen([a, vreemd], [a], [])).toEqual([vreemd])
+  })
+})
+
+/** Een belofte die de test zelf vrijgeeft. */
+function slot(): { vrij: Promise<void>; vrijgeven: () => void } {
+  let vrijgeven!: () => void
+  const vrij = new Promise<void>((r) => { vrijgeven = r })
+  return { vrij, vrijgeven }
+}
+
+/** Een LockManager in het geheugen: exclusief, in volgorde van aanvraag. */
+function nepSloten() {
+  const namen: string[] = []
+  let keten: Promise<unknown> = Promise.resolve()
+  const locks = {
+    request(naam: string, werk: () => unknown) {
+      namen.push(naam)
+      const uitkomst = keten.then(() => werk())
+      keten = uitkomst.catch(() => {})
+      return uitkomst
+    },
+  } as unknown as LockManager
+  return { locks, namen }
+}
+
+describe('metWachtrijslot', () => {
+  // Spec twee-tabbladen §3: versturen en ongedaan maken nooit door elkaar.
+  it('laat twee werken onder het slot na elkaar lopen, niet door elkaar', async () => {
+    const { locks, namen } = nepSloten()
+    const volgorde: string[] = []
+    const a = slot()
+    const eerste = metWachtrijslot(locks, async () => {}, async () => {
+      volgorde.push('a begint')
+      await a.vrij
+      volgorde.push('a klaar')
+    })
+    const tweede = metWachtrijslot(locks, async () => {}, () => { volgorde.push('b') })
+    await Promise.resolve()
+    a.vrijgeven()
+    await Promise.all([eerste, tweede])
+    expect(volgorde).toEqual(['a begint', 'a klaar', 'b'])
+    expect(namen).toEqual([WACHTRIJ_SLOT, WACHTRIJ_SLOT])
+  })
+
+  it('geeft de uitkomst van het werk terug', async () => {
+    const { locks } = nepSloten()
+    expect(await metWachtrijslot(locks, async () => {}, () => 'klaar')).toBe('klaar')
+  })
+
+  // Zonder Web Locks: het gedrag van vóór deze spec, wachten in het eigen tabblad.
+  it('wacht zonder LockManager eerst op anders()', async () => {
+    const volgorde: string[] = []
+    const anders = slot()
+    const bezig = metWachtrijslot(undefined, () => anders.vrij, () => { volgorde.push('werk') })
+    await Promise.resolve()
+    expect(volgorde).toEqual([])
+    anders.vrijgeven()
+    await bezig
+    expect(volgorde).toEqual(['werk'])
+  })
+})
+
+describe('markeerOnzeker', () => {
+  it('merkt de ingang met hetzelfde itemId en afgestreeptOp, en geen andere', () => {
+    const a = inWachtrij('a')
+    const b = inWachtrij('b')
+    expect(markeerOnzeker([a, b], a)).toEqual([{ ...a, onzeker: true }, b])
+  })
+
+  // Ongedaan gemaakt en opnieuw afgestreept: een nieuwe ingang, een ander moment.
+  it('merkt een opnieuw afgestreepte ingang van hetzelfde item niet', () => {
+    const oud = inWachtrij('a')
+    const nieuw = { ...inWachtrij('a'), afgestreeptOp: '2026-10-03T13:00:00Z' }
+    expect(markeerOnzeker([nieuw], oud)).toEqual([nieuw])
+  })
+})
+
+describe('het onzeker-merk in de opslag', () => {
+  it('leesWachtrij bewaart onzeker: true', () => {
+    const o = new NepOpslag()
+    schrijfWachtrij(o, [{ ...inWachtrij('a'), onzeker: true }])
+    expect(leesWachtrij(o)[0]!.onzeker).toBe(true)
   })
 })

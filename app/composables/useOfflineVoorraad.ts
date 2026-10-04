@@ -2,6 +2,8 @@ import type { Bewaarplaats, Reden, VoorraadItem } from '~/utils/voorraad'
 import {
   leesKopie,
   leesWachtrij,
+  markeerOnzeker,
+  metWachtrijslot,
   ruimOpVoor,
   schrijfKopie,
   schrijfWachtrij,
@@ -14,6 +16,7 @@ import {
   zetTerugInKopie,
   type Kopie,
   type Wachtrij,
+  type Wachtrijitem,
 } from '~/utils/offlineVoorraad'
 
 // Eén lopende verzending voor de hele app. De plugin en de voorraadpagina
@@ -21,15 +24,10 @@ import {
 // die al loopt, niet ernaast een tweede starten (spec §6).
 let lopend: Promise<void> | null = null
 
-// Afstrepingen die misschien al op de server staan: een poging faalde zonder
-// antwoord van de server terwijl het toestel vooraf online was (spec termijn
-// §5). Op moduleniveau, zoals lopend: de plugin verstuurt, de pagina maakt
-// ongedaan. In het geheugen volstaat: de toast met Ongedaan maken overleeft
-// een herlaad ook niet. Elke nieuwe wachtrij-ingang zet haar merk of wist het
-// (zetInWachtrij), dus een oud merk wordt nooit geërfd. Verder wordt niets
-// gewist: de set groeit met één id per onzekere verzending, en dat is
-// verwaarloosbaar.
-const onzeker = new Set<string>()
+/** Web Locks als de browser ze kent (spec twee-tabbladen §3). */
+function sloten(): LockManager | undefined {
+  return import.meta.client && typeof navigator !== 'undefined' ? navigator.locks : undefined
+}
 
 export type Ongedaanuitkomst = 'teruggezet' | 'nietBevestigd' | 'nietInWachtrij'
 
@@ -87,8 +85,7 @@ export function useOfflineVoorraad() {
    * de kopie. true alleen als de wachtrij echt geschreven is: faalt dat (vol,
    * geen eigenaar), dan mag de aanroeper de afstreping niet als bewaard tonen.
    * `onzeker`: de afstreping is misschien al op de server (spec termijn §5).
-   * Zonder `onzeker` wist dit het merk: een nieuwe, zekere afstreping erft
-   * nooit dat van een vorige.
+   * Het merk staat in de ingang zelf, en een nieuwe ingang erft er nooit een.
    */
   function zetInWachtrij(item: VoorraadItem, reden: Reden, opties: { onzeker?: boolean } = {}): boolean {
     let gelukt = false
@@ -96,10 +93,16 @@ export function useOfflineVoorraad() {
       const k = leesKopie(o)
       const eigenaar = user.value?.sub ?? k?.eigenaar
       if (!eigenaar) return
-      schrijfWachtrij(o, [...leesWachtrij(o), { itemId: item.id, reden, eigenaar, afgestreeptOp: new Date().toISOString(), item }])
+      const ingang: Wachtrijitem = {
+        itemId: item.id,
+        reden,
+        eigenaar,
+        afgestreeptOp: new Date().toISOString(),
+        item,
+        ...(opties.onzeker ? { onzeker: true as const } : {}),
+      }
+      schrijfWachtrij(o, [...leesWachtrij(o), ingang])
       gelukt = true
-      if (opties.onzeker) onzeker.add(item.id)
-      else onzeker.delete(item.id)
       // Mislukt alleen dit, dan staat de afstreping wel in de wachtrij.
       if (k) schrijfKopie(o, streepAfInKopie(k, item.id))
     })
@@ -160,8 +163,9 @@ export function useOfflineVoorraad() {
   async function verstuurNu(): Promise<void> {
     const id = user.value?.sub
     if (!id) return
-    const mijn = wachtrijVoor(wachtrij(), id)
-    if (mijn.length === 0) return
+    // Alleen een snelle controle: de wachtrij die verstuurd wordt, komt pas
+    // binnen het slot.
+    if (wachtrijVoor(wachtrij(), id).length === 0) return
     // Geen sessie, geen verzending. Staat de app langer dan een uur open
     // terwijl het toestel offline is, dan verloopt het access-token: auth-js
     // houdt user.sub nog vast, maar getSession() geeft geen sessie meer, en
@@ -171,12 +175,31 @@ export function useOfflineVoorraad() {
     // zodra de sessie vernieuwd is (TOKEN_REFRESHED of SIGNED_IN).
     const { data } = await supabase.auth.getSession()
     if (!data.session) return
-    const r = await verstuurWachtrij(mijn, (itemId, reden) => close(itemId, reden))
-    // Herschrijf de wachtrij zoals ze nu in de opslag staat, niet zoals ze was
-    // toen het versturen begon (zie voegWachtrijSamen).
-    schrijf((o) => schrijfWachtrij(o, voegWachtrijSamen(leesWachtrij(o), mijn, r.resterend)))
-    if (r.onzeker) onzeker.add(r.onzeker)
-    if (r.mislukt > 0) toast.add({ title: $i18n.t('offlineVoorraad.notSent', { count: r.mislukt }), color: 'error' })
+    // Binnen het slot: een verzending of ongedaanmaking in een ander tabblad
+    // gaat voor of na, nooit tegelijk (spec twee-tabbladen §3). De sessie
+    // hierboven bewust erbuiten: auth heeft geen termijn, en een hangende
+    // vernieuwing zou het slot voor alle tabbladen vasthouden. Dat houdt auth
+    // in het gewone geval buiten het slot, maar niet altijd: close() vraagt
+    // binnen het slot via supabase-js zelf ook de sessie op, en komt het
+    // token tijdens de verzending in de vernieuwingsmarge, dan kan een
+    // vernieuwing toch binnen het slot lopen (zie open-bevindingen).
+    const mislukt = await metWachtrijslot(sloten(), () => Promise.resolve(), async () => {
+      // Opnieuw lezen: een ander tabblad kan intussen verstuurd of ongedaan
+      // gemaakt hebben.
+      const mijn = wachtrijVoor(wachtrij(), id)
+      if (mijn.length === 0) return 0
+      const r = await verstuurWachtrij(mijn, (itemId, reden) => close(itemId, reden))
+      // Is r.onzeker gezet, dan is resterend[0] precies de ingang die faalde.
+      const onzekere = r.onzeker ? r.resterend[0] : undefined
+      // Herschrijf de wachtrij zoals ze nu in de opslag staat, niet zoals ze
+      // was toen het versturen begon (zie voegWachtrijSamen).
+      schrijf((o) => {
+        const samen = voegWachtrijSamen(leesWachtrij(o), mijn, r.resterend)
+        schrijfWachtrij(o, onzekere ? markeerOnzeker(samen, onzekere) : samen)
+      })
+      return r.mislukt
+    })
+    if (mislukt > 0) toast.add({ title: $i18n.t('offlineVoorraad.notSent', { count: mislukt }), color: 'error' })
   }
 
   function verstuur(): Promise<void> {
@@ -184,24 +207,33 @@ export function useOfflineVoorraad() {
     return lopend
   }
 
-  /** Wacht op de lopende verzending, als die er is. Wie de wachtrij wil wijzigen, wacht eerst. */
+  /**
+   * Wacht op de lopende verzending in dit tabblad, als die er is. Alleen nog de
+   * terugval zonder Web Locks: met Web Locks coördineert het slot (zie
+   * metWachtrijslot).
+   */
   function wachtOpVerzending(): Promise<void> {
     return lopend ?? Promise.resolve()
   }
 
   /**
-   * Ongedaan maken van een afstreping uit de wachtrij (spec termijn §6).
-   * 'nietInWachtrij': ze is intussen verstuurd; de aanroeper beslist wat dan.
-   * Was ze onzeker, dan ook heropenen op de server: reopen() filtert op
-   * status 'closed', dus had de server haar niet, dan raakt het niets.
+   * Ongedaan maken van een afstreping uit de wachtrij (spec termijn §6, spec
+   * twee-tabbladen §3). 'nietInWachtrij': ze is intussen verstuurd; de
+   * aanroeper beslist wat dan. Was ze onzeker, dan ook heropenen op de
+   * server: reopen() filtert op status 'closed', dus had de server haar niet,
+   * dan raakt het niets.
    */
   async function ongedaanMakenInWachtrij(item: VoorraadItem): Promise<Ongedaanuitkomst> {
-    // Loopt er een verzending, wacht dan: pas daarna weten we of de afstreping
-    // nog in de wachtrij staat, en of ze onzeker is.
-    await wachtOpVerzending()
-    const wasOnzeker = onzeker.has(item.id)
-    if (!haalUitWachtrij(item.id)) return 'nietInWachtrij'
-    if (!wasOnzeker) return 'teruggezet'
+    // Binnen het slot, en alleen synchroon werk: een verzending in dit of een
+    // ander tabblad is dan klaar, en neemt de afstreping daarna niet meer mee.
+    // Zonder Web Locks: wachten op de verzending in dit tabblad.
+    const stand = await metWachtrijslot(sloten(), wachtOpVerzending, () => {
+      const wasOnzeker = wachtrij().some((w) => w.itemId === item.id && w.onzeker === true)
+      if (!haalUitWachtrij(item.id)) return 'weg' as const
+      return wasOnzeker ? ('onzeker' as const) : ('zeker' as const)
+    })
+    if (stand === 'weg') return 'nietInWachtrij'
+    if (stand === 'zeker') return 'teruggezet'
     try {
       await reopen(item.id)
       return 'teruggezet'

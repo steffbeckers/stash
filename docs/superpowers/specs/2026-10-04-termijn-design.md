@@ -155,6 +155,11 @@ Ze is zeker niet verstuurd in twee gevallen:
     wordt het niet gewist. De set groeit met één id per onzekere verzending,
     en dat is verwaarloosbaar.
 
+Sinds `2026-10-04-twee-tabbladen-design.md` staat het merk niet meer in een
+set in het geheugen, maar als `onzeker: true` in de wachtrij-ingang zelf,
+zodat elk tabblad het ziet. Versturen en ongedaan maken nemen daar ook
+hetzelfde slot over alle tabbladen heen.
+
 ## 6. Ongedaan maken
 
 Eén gedeelde functie in `useOfflineVoorraad`, zodat de voorraadpagina en de
