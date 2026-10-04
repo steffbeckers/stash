@@ -79,8 +79,11 @@ window.fetch = metTermijn(window.fetch.bind(window), useRuntimeConfig().public.s
 ```
 
 Alleen in de browser. Supabase-js en de module roepen de globale `fetch` pas
-op het moment van het verzoek aan, dus de volgorde ten opzichte van de
-plugin van `@nuxtjs/supabase` maakt niet uit.
+op het moment van het verzoek aan. De plugin moet wel draaien vóór die van
+`@nuxtjs/supabase`, want die vraagt bij het opstarten al de sessie op, wat
+een tokenvernieuwing kan zijn. De supabase-plugin heeft `enforce: 'pre'`,
+wat in Nuxt orde −20 is (`internalOrderMap` in
+`node_modules/nuxt/dist/index.mjs`). De termijn-plugin krijgt `order: -25`.
 
 **Wat de app ziet.** postgrest-js maakt van een `AbortError` deze fout:
 
@@ -112,17 +115,22 @@ staan (offline-spec §6).
 
 ## 5. Onzeker verstuurd
 
-Een afstreping is **onzeker** als haar laatste verzendpoging faalde terwijl
-`navigator.onLine` waar was. De server kan haar dan gekregen hebben: bij een
-termijn, maar ook bij een verbinding die wegvalt midden in het antwoord.
-Faalde de poging terwijl het toestel offline was, dan is ze zeker niet
-verstuurd.
+Een afstreping is **onzeker** als haar laatste verzendpoging faalde zonder
+antwoord van de server, terwijl `navigator.onLine` waar was. De server kan
+haar dan gekregen hebben: bij een termijn, maar ook bij een verbinding die
+wegvalt midden in het antwoord.
+
+Ze is zeker niet verstuurd in twee gevallen:
+- **De poging faalde terwijl het toestel offline was.**
+- **De fout heeft een niet-lege string als `code`**, zoals `42501` of
+  `PGRST301`. Dan antwoordde de server en weigerde hij.
 
 - **`verstuurWachtrij`** krijgt in haar resultaat een veld
   `onzeker: string | null`. Dat is het `itemId` van het item waarvan de
-  poging faalde, als `online()` op dat moment waar was en het item daardoor
-  blijft staan. In alle andere gevallen is het `null`: offline, een
-  definitieve fout, of geen fout.
+  poging faalde, als `online()` op dat moment waar was, de fout geen
+  niet-lege `code` had, en het item daardoor blijft staan. In alle andere
+  gevallen is het `null`: offline, een fout met een code, een definitieve
+  fout, of geen fout.
 - **`useOfflineVoorraad`** houdt een `Set<string>` met onzekere item-id's bij,
   op moduleniveau naast `lopend`.
   - `verstuurNu` haalt elk item uit de set dat niet meer in `r.resterend`
@@ -162,7 +170,7 @@ Bij `'teruggezet'` en `'nietBevestigd'` toont de pagina het item weer. Bij
 
 - **nl:** "Ongedaan maken kon niet bevestigd worden. Kijk de voorraad straks na."
 - **en:** "Undo couldn't be confirmed. Check your inventory again later."
-- **fr:** "L'annulation n'a pas pu être confirmée. Vérifiez votre inventaire plus tard."
+- **fr:** "La remise en stock n'a pas pu être confirmée. Vérifiez votre stock plus tard."
 
 ## 7. Foutgevallen
 
@@ -201,7 +209,7 @@ de server de afstreping intussen echt.
 | `isNetwerkfout` is waar voor `{ code: '', message: 'AbortError: …' }` en voor een `DOMException` met de naam `AbortError` | De nieuwe tak weghalen |
 | `isNetwerkfout` is onwaar voor `AbortError: ` mét een databasecode | De codecontrole weghalen |
 | `verstuurWachtrij` geeft als `onzeker` het id van het item dat online faalde | Het veld niet zetten |
-| `onzeker` is `null` als het offline faalde, bij een definitieve fout en bij succes | Het veld altijd zetten |
+| `onzeker` is `null` als het offline faalde, bij een fout met een code (`42501`), bij een definitieve fout en bij succes | Het veld altijd zetten; de codecontrole weghalen |
 
 ### End-to-end — `e2e/offline.spec.ts`
 
@@ -225,6 +233,9 @@ de server de afstreping intussen echt.
    plugin, en zonder de toewijzing aan `init.signal`.
 7. **Op de offline-pagina** heropent het ongedaan maken van een onzekere
    afstreping ook. Rood als de offline-pagina haar oude logica houdt.
+
+Test 1 en 2 zijn één test: dezelfde hangende afstreping, eerst in de
+wachtrij, dan ongedaan gemaakt. Zo kost dat één termijn in plaats van twee.
 
 Toasts met Ongedaan maken worden in deze tests aangewezen met de muis, zoals
 in de bestaande race-tests. Zo pauzeert hun timer van 5 s.
