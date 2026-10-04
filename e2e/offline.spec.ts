@@ -474,6 +474,56 @@ test('een opnieuw afgestreept item erft het onzeker-merk niet', async ({ page, c
   vast.vrijgeven()
 })
 
+test('een verversing tijdens het heropenen zet het item niet dubbel terug', async ({ page }) => {
+  const a = `Dubbel${Date.now()}`
+  const b = `Tussen${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-dubbel', 'Dora', [
+    { naam: a, aantal: 2 },
+    { naam: b, aantal: 1 },
+  ])
+
+  // De eerste PATCH (a sluiten) komt aan maar blijft hangen tot na de termijn.
+  // De tweede (a heropenen) komt aan, en haar antwoord wacht op de test.
+  // Elke volgende gaat door.
+  const afstreping = slot()
+  const heropening = slot()
+  let opServer!: () => void
+  const heropendOpServer = new Promise<void>((r) => { opServer = r })
+  let pogingen = 0
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
+    pogingen++
+    if (pogingen > 2) return route.fallback()
+    const antwoord = await route.fetch()
+    if (pogingen === 2) opServer()
+    await (pogingen === 1 ? afstreping.vrij : heropening.vrij)
+    await route.fulfill({ response: antwoord }).catch(() => {})
+  })
+
+  await streepAf(page, a)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(groep(page, 'Pantry', a)).toContainText('×1')
+
+  // Ongedaan maken: de server heropent a, het antwoord blijft hangen.
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await heropendOpServer
+
+  // b afstrepen ververst de lijst: de server heeft a al weer open.
+  await streepAf(page, b)
+  await expect(groep(page, 'Pantry', b)).toBeHidden()
+  await expect(groep(page, 'Pantry', a)).toContainText('×2')
+
+  // Binnen de termijn vrijgeven. Pas als het antwoord helemaal binnen is en
+  // de pagina daarna een taak verder is, heeft ze het item teruggezet.
+  const heropend = page.waitForResponse((r) => isPatch(new URL(r.url()), r.request().method()) && r.url().includes('status=eq.closed'))
+  heropening.vrijgeven()
+  await (await heropend).finished()
+  await page.evaluate(() => new Promise((r) => setTimeout(r, 0)))
+  await expect(groep(page, 'Pantry', a)).toContainText('×2')
+  await expect(groep(page, 'Pantry', a)).not.toContainText('×3')
+  afstreping.vrijgeven()
+})
+
 test('een verversing tijdens een verzending zet het afgestreepte item niet terug', async ({ page, context }) => {
   const a = `Verzend${Date.now()}`
   const b = `Ander${Date.now()}`

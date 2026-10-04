@@ -108,7 +108,9 @@ async function ongedaanMakenOffline(item: VoorraadItem): Promise<void> {
     await ongedaanMaken(item.id, item)
     return
   }
-  items.value = [...items.value, item]
+  // Eerst filteren: een verversing tijdens het heropenen (tot de termijn) kan
+  // het item al teruggezet hebben, en dan stond het er twee keer.
+  items.value = [...items.value.filter((i) => i.id !== item.id), item]
   if (uitkomst === 'nietBevestigd') toast.add({ title: t('offlineVoorraad.undoUnconfirmed'), color: 'warning' })
 }
 
