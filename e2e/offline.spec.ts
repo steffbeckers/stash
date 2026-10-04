@@ -568,6 +568,33 @@ test('ongedaan maken op de offline-pagina zet het item terug', async ({ page }) 
   expect(await wachtrijWaarde(page)).toBeNull()
 })
 
+test('ongedaan maken op de offline-pagina heropent een onzeker verstuurde afstreping op de server', async ({ page }) => {
+  const naam = `Kelderhang${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-offlinepagina', 'Kees', [{ naam, aantal: 2 }])
+
+  await page.goto(routePath('offline', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await streepAf(page, naam)
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+
+  // Het online-event laat de plugin versturen; de server krijgt de afstreping,
+  // de pagina het antwoord niet.
+  const vast = await houdEersteAfstrepingVast(page)
+  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await verzonden
+
+  await ongedaan.click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2', { timeout: 20_000 })
+
+  vast.vrijgeven()
+  await page.goto(routePath('inventory', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
 test('lukt het bewaren in de wachtrij niet op de offline-pagina, dan is het een gewone fout', async ({ page }) => {
   const naam = `Vol${Date.now()}`
   await openOfflinePagina(page, 'offline-pagina-vol', naam)
