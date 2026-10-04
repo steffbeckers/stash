@@ -8,7 +8,7 @@ import {
   type Reden,
   type VoorraadItem,
 } from '~/utils/voorraad'
-import { isNetwerkfout, wachtrijVoor } from '~/utils/offlineVoorraad'
+import { heeftFoutcode, isNetwerkfout, wachtrijVoor } from '~/utils/offlineVoorraad'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
@@ -60,6 +60,9 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
   // Nu vastgelegd: na de verversing staat het item niet meer in de lijst, en
   // ongedaan maken heeft het nodig om de kopie bij te werken.
   const item = items.value.find((i) => i.id === itemId)
+  // Vóór de poging: valt de verbinding weg midden in het antwoord, dan is het
+  // toestel in de catch al offline, terwijl de server de afstreping kan hebben.
+  const vooraf = navigator.onLine
   try {
     const gelukt = await close(itemId, reden)
     if (gelukt) {
@@ -76,11 +79,13 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
   } catch (oorzaak) {
     // zetInWachtrij() staat in de voorwaarde: lukt het bewaren niet (opslag vol),
     // dan valt dit terug op de gewone foutmelding en blijft het item in de lijst.
-    // Online en toch een netwerkfout (de termijn, of een verbinding die
-    // wegviel): misschien kreeg de server de afstreping toch.
-    if (item && isNetwerkfout(oorzaak, navigator.onLine) && offline.zetInWachtrij(item, reden, { onzeker: navigator.onLine })) {
-      // Geen netwerk: de afstreping wacht op het toestel (spec §5, punt 2).
-      // Niet herladen — dat faalt nu ook, en de lijst klopt al.
+    // Was het toestel vóór de poging online en kwam er geen antwoord van de
+    // server (de termijn, of een verbinding die wegviel), dan kreeg de server
+    // de afstreping misschien toch: onzeker.
+    if (item && isNetwerkfout(oorzaak, navigator.onLine) && offline.zetInWachtrij(item, reden, { onzeker: vooraf && !heeftFoutcode(oorzaak) })) {
+      // Geen netwerk of geen antwoord binnen de termijn: de afstreping wacht op
+      // het toestel (spec §5, punt 2; spec termijn §4). Niet herladen: dat
+      // faalt nu waarschijnlijk ook, en de lijst klopt al.
       items.value = items.value.filter((i) => i.id !== itemId)
       toast.add({
         title: t('offlineVoorraad.queued'),

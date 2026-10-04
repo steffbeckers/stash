@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { routePath } from '../routes.config'
 import { signIn, createHousehold, bundles, waitForHydration, openUserMenu } from './helpers'
 import { KOPIE_SLEUTEL, WACHTRIJ_SLEUTEL } from '../app/utils/offlineVoorraad'
@@ -369,6 +369,75 @@ test('faalt ook het heropenen, dan zegt ongedaan maken dat het niet bevestigd is
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   expect(await wachtrijWaarde(page)).toBeNull()
   vast.vrijgeven()
+})
+
+/**
+ * Laat de eerste PATCH op inventory_item bij de server aankomen, gaat dan
+ * offline, en geeft de pagina daarna `antwoord`: zonder antwoord een afgebroken
+ * verzoek. Zo valt de verbinding weg midden in het antwoord: vóór de poging was
+ * het toestel online, in de catch is het offline.
+ */
+async function verliesVerbindingTijdensAfstreping(
+  page: Page,
+  context: BrowserContext,
+  antwoord?: { status: number; json: unknown },
+): Promise<{ afgehandeld: Promise<void> }> {
+  let gezien = false
+  let afgehandeld!: () => void
+  const klaar = new Promise<void>((r) => { afgehandeld = r })
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method()) || gezien) return route.fallback()
+    gezien = true
+    await route.fetch()
+    await context.setOffline(true)
+    await page.waitForFunction(() => !navigator.onLine)
+    if (antwoord) await route.fulfill(antwoord).catch(() => {})
+    else await route.abort().catch(() => {})
+    afgehandeld()
+  })
+  return { afgehandeld: klaar }
+}
+
+test('valt de verbinding weg tijdens een afstreping, dan is ze onzeker', async ({ page, context }) => {
+  const naam = `Wegval${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-wegval', 'Wout', [{ naam, aantal: 2 }])
+  const vast = await verliesVerbindingTijdensAfstreping(page, context)
+
+  await streepAf(page, naam)
+  await vast.afgehandeld
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+
+  // De server heeft de afstreping. Ongedaan maken probeert haar daar te
+  // heropenen, en dat kan offline niet: dus niet bevestigd, en niet stil
+  // alleen uit de wachtrij gehaald.
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('weigert de server een afstreping en valt daarna de verbinding weg, dan is ze niet onzeker', async ({ page, context }) => {
+  const naam = `Geweigerd${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-geweigerd', 'Gijs', [{ naam, aantal: 2 }])
+  // Een antwoord met een databasecode: de server antwoordde, en weigerde.
+  const vast = await verliesVerbindingTijdensAfstreping(page, context, {
+    status: 403,
+    json: { code: '42501', message: 'permission denied for table inventory_item', details: null, hint: null },
+  })
+
+  await streepAf(page, naam)
+  await vast.afgehandeld
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+
+  // Zeker niet toegepast: ongedaan maken haalt haar alleen uit de wachtrij.
+  const patches: string[] = []
+  page.on('request', (r) => { if (isPatch(new URL(r.url()), r.method())) patches.push(r.url()) })
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+  expect(patches).toEqual([])
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toHaveCount(0)
 })
 
 test('een verversing tijdens een verzending zet het afgestreepte item niet terug', async ({ page, context }) => {

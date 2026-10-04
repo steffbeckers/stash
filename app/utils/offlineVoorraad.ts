@@ -195,7 +195,7 @@ function isDefinitieveFout(oorzaak: unknown): boolean {
 }
 
 /** Een niet-lege code: de server antwoordde, en weigerde. */
-function heeftFoutcode(oorzaak: unknown): boolean {
+export function heeftFoutcode(oorzaak: unknown): boolean {
   return isRecord(oorzaak) && typeof oorzaak.code === 'string' && oorzaak.code !== ''
 }
 
@@ -217,8 +217,11 @@ function standaardOnline(): boolean {
  * sessie (42501 met de anon-sleutel, PGRST301), een serverfout, een antwoord
  * zonder databasecode (captive portal, proxy) of een gegooide niet-object.
  *
- * Faalt een poging online zonder antwoord van de server (geen code), dan is
- * dat item `onzeker`: ongedaan maken moet het ook op de server heropenen.
+ * Faalt een poging zonder antwoord van de server (geen code) terwijl het
+ * toestel vóór de poging online was, dan is dat item `onzeker`: ongedaan maken
+ * moet het ook op de server heropenen. Vóór de poging, niet in de `catch`:
+ * valt de verbinding weg midden in het antwoord, dan is het toestel daar al
+ * offline, terwijl de server de afstreping misschien heeft.
  */
 export async function verstuurWachtrij(
   wachtrij: Wachtrij,
@@ -228,6 +231,7 @@ export async function verstuurWachtrij(
   const resultaat: Verzendresultaat = { resterend: [], verstuurd: 0, vervallen: 0, mislukt: 0, onzeker: null }
   for (let i = 0; i < wachtrij.length; i++) {
     const item = wachtrij[i]!
+    const vooraf = online()
     try {
       if (await sluit(item.itemId, item.reden)) resultaat.verstuurd++
       else resultaat.vervallen++
@@ -235,7 +239,7 @@ export async function verstuurWachtrij(
       const isOnline = online()
       if (!isOnline || !isDefinitieveFout(oorzaak)) {
         resultaat.resterend = wachtrij.slice(i)
-        if (isOnline && !heeftFoutcode(oorzaak)) resultaat.onzeker = item.itemId
+        if (vooraf && !heeftFoutcode(oorzaak)) resultaat.onzeker = item.itemId
         return resultaat
       }
       resultaat.mislukt++

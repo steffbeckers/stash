@@ -472,6 +472,18 @@ describe('verstuurWachtrij en onzeker verstuurd', () => {
     expect(r.onzeker).toBeNull()
   })
 
+  // De verbinding viel weg midden in het antwoord: in de catch is het toestel
+  // al offline, maar de server kan de afstreping hebben.
+  it('meldt het item als onzeker als het toestel pas tijdens de poging offline ging', async () => {
+    let online = true
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => {
+      online = false
+      throw new TypeError('Failed to fetch')
+    }, () => online)
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a'])
+    expect(r.onzeker).toBe('a')
+  })
+
   // Een code: de server antwoordde en weigerde. Dan is de afstreping zeker niet toegepast.
   it('meldt een fout met een code niet als onzeker', async () => {
     const r = await verstuurWachtrij([inWachtrij('a')], async () => {
