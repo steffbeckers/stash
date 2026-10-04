@@ -808,8 +808,9 @@ test('faalt het heropenen op de offline-pagina, dan zegt ongedaan maken dat het 
 /**
  * Een tweede tabblad met de offline-pagina, online geopend. Afstrepen daar
  * komt altijd zeker in de wachtrij, zonder verzoek naar de server. Dit
- * tabblad krijgt geen online-event, dus verstuurt het zelf niets: dat zou het
- * verschil verbergen.
+ * tabblad krijgt geen online-event, dus verstuurt het niet uit zichzelf: dat
+ * zou het verschil verbergen. Een `TOKEN_REFRESHED`/`SIGNED_IN` in tabblad 2
+ * zou dat wel doen, maar met het slot wacht die verzending of vindt ze niets.
  */
 async function tweedeTabbladMetAfstreping(page: Page, naam: string): Promise<Page> {
   const tab2 = await page.context().newPage()

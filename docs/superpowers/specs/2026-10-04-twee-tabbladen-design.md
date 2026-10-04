@@ -36,7 +36,7 @@ Deze spec maakt de garantie geldig over alle tabbladen heen.
 
 | Beslissing | Waarom | Kosten als het fout is |
 |---|---|---|
-| Web Locks (`navigator.locks`) | De browser regelt de wachtrij tussen tabbladen. Een tabblad dat sluit of vastloopt, laat het slot vanzelf los. Safari heeft het sinds iOS 15.4; supabase-js gebruikt dezelfde API. | Een browser zonder Web Locks valt terug op het oude gedrag. |
+| Web Locks (`navigator.locks`) | De browser regelt de wachtrij tussen tabbladen. Een tabblad dat sluit of vastloopt, laat het slot vanzelf los. Safari heeft het sinds iOS 15.4. supabase-js biedt er een wrapper rond, maar gebruikt ze hier niet: auth-js is standaard zonder slot. | Een browser zonder Web Locks valt terug op het oude gedrag. Het slot ordent alleen de code van de tabbladen, niet de opslag: `localStorage` kan tussen processen even achterlopen, zie de bevinding "Het wachtrijslot ordent de code, niet de opslag" in `docs/superpowers/open-bevindingen.md`. |
 | Niet: één verzendend tabblad via BroadcastChannel | Leiderskeuze en het overnemen bij een gesloten leider zijn extra onderdelen. Het slot voor ongedaan maken blijft dan toch nodig. | Geen: het slot volstaat. |
 | Niet: een eigen mutex in `localStorage` | Een tabblad dat crasht, laat een slot achter dat pas na een timeout vrijkomt. Het bouwt na wat de browser al biedt. | Geen. |
 | De sessiecontrole vóór het slot | Auth valt buiten de termijn. Een hangende tokenvernieuwing binnen het slot zou het voor alle tabbladen vasthouden. | Tussen de controle en het slot kan de sessie verlopen. Dan antwoordt de server met `42501`, en `verstuurWachtrij` houdt de afstreping vast, zoals bij elke verlopen sessie. |
@@ -95,6 +95,7 @@ ook vast.
 **Wachttijd.** Ongedaan maken in tabblad 2 wacht op een verzending in
 tabblad 1. Die duurt ten hoogste 10 s per verzoek dat hangt, en de
 verzending stopt bij de eerste fout.
+Die grens gaat ervan uit dat het tabblad met het slot blijft draaien (een bevroren tabblad vuurt zijn timer niet af), en de voorraadpagina wacht bij het openen ook op de verzending van een ander tabblad. Zie de bevinding "Een bevroren tabblad houdt het wachtrijslot vast" in `docs/superpowers/open-bevindingen.md`.
 
 ## 4. Het onzeker-merk in de ingang
 

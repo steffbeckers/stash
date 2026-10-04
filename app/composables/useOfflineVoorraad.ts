@@ -178,7 +178,11 @@ export function useOfflineVoorraad() {
     // Binnen het slot: een verzending of ongedaanmaking in een ander tabblad
     // gaat voor of na, nooit tegelijk (spec twee-tabbladen §3). De sessie
     // hierboven bewust erbuiten: auth heeft geen termijn, en een hangende
-    // vernieuwing zou het slot voor alle tabbladen vasthouden.
+    // vernieuwing zou het slot voor alle tabbladen vasthouden. Dat houdt auth
+    // in het gewone geval buiten het slot, maar niet altijd: close() vraagt
+    // binnen het slot via supabase-js zelf ook de sessie op, en komt het
+    // token tijdens de verzending in de vernieuwingsmarge, dan kan een
+    // vernieuwing toch binnen het slot lopen (zie open-bevindingen).
     const mislukt = await metWachtrijslot(sloten(), () => Promise.resolve(), async () => {
       // Opnieuw lezen: een ander tabblad kan intussen verstuurd of ongedaan
       // gemaakt hebben.
@@ -203,7 +207,11 @@ export function useOfflineVoorraad() {
     return lopend
   }
 
-  /** Wacht op de lopende verzending, als die er is. Wie de wachtrij wil wijzigen, wacht eerst. */
+  /**
+   * Wacht op de lopende verzending in dit tabblad, als die er is. Alleen nog de
+   * terugval zonder Web Locks: met Web Locks coördineert het slot (zie
+   * metWachtrijslot).
+   */
   function wachtOpVerzending(): Promise<void> {
     return lopend ?? Promise.resolve()
   }
