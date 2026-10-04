@@ -185,7 +185,7 @@ describe('verstuurWachtrij', () => {
 
   it('telt verstuurd en vervallen, en laat niets achter', async () => {
     const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async (id) => id === 'a')
-    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 1, mislukt: 0 })
+    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 1, mislukt: 0, onzeker: null })
   })
 
   // Het netwerk is weg: de rest proberen heeft geen zin en mag niet verloren gaan.
@@ -230,14 +230,14 @@ describe('verstuurWachtrij', () => {
       return true
     })
     expect(geprobeerd).toEqual(['a', 'b'])
-    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 0, mislukt: 1 })
+    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 0, mislukt: 1, onzeker: null })
   })
 
   it('laat een afstreping met een datafout (22P02) vallen', async () => {
     const r = await verstuurWachtrij([inWachtrij('a')], async () => {
       throw { code: '22P02', message: 'invalid input syntax for type uuid' }
     })
-    expect(r).toEqual({ resterend: [], verstuurd: 0, vervallen: 0, mislukt: 1 })
+    expect(r).toEqual({ resterend: [], verstuurd: 0, vervallen: 0, mislukt: 1, onzeker: null })
   })
 
   // Een verlopen sessie: supabase-js stuurt dan de anon-sleutel mee, en anon
@@ -450,6 +450,43 @@ describe('verstuurWachtrij bij onzekerheid', () => {
     const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw worp }, () => true)
     expect(r.resterend.map((i) => i.itemId)).toEqual(['a'])
     expect(r.mislukt).toBe(0)
+  })
+})
+
+describe('verstuurWachtrij en onzeker verstuurd', () => {
+  const afgebroken = { code: '', message: 'AbortError: signal is aborted without reason' }
+
+  // Online en zonder antwoord van de server: misschien kwam de afstreping toch aan.
+  it('meldt het item dat online zonder antwoord faalde als onzeker', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b'), inWachtrij('c')], async (id) => {
+      if (id === 'b') throw afgebroken
+      return true
+    }, () => true)
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['b', 'c'])
+    expect(r.onzeker).toBe('b')
+  })
+
+  it('meldt niets als onzeker als het toestel offline was', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw afgebroken }, () => false)
+    expect(r.resterend.length).toBe(1)
+    expect(r.onzeker).toBeNull()
+  })
+
+  // Een code: de server antwoordde en weigerde. Dan is de afstreping zeker niet toegepast.
+  it('meldt een fout met een code niet als onzeker', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => {
+      throw { code: '42501', message: 'permission denied for table inventory_item' }
+    }, () => true)
+    expect(r.resterend.length).toBe(1)
+    expect(r.onzeker).toBeNull()
+  })
+
+  it('meldt niets als onzeker bij een definitieve fout of bij succes', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async (id) => {
+      if (id === 'a') throw { code: '23514', message: 'new row violates check constraint' }
+      return true
+    }, () => true)
+    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 0, mislukt: 1, onzeker: null })
   })
 })
 

@@ -38,6 +38,11 @@ export interface Verzendresultaat {
   verstuurd: number
   vervallen: number
   mislukt: number
+  /**
+   * Het item waarvan de poging online faalde zonder antwoord van de server:
+   * misschien kreeg de server het toch (spec termijn §5). Anders null.
+   */
+  onzeker: string | null
 }
 
 /** Lezen crasht nooit: de offline-pagina moet altijd openen. */
@@ -189,6 +194,11 @@ function isDefinitieveFout(oorzaak: unknown): boolean {
   return isRecord(oorzaak) && typeof oorzaak.code === 'string' && /^2[23][0-9A-Z]{3}$/.test(oorzaak.code)
 }
 
+/** Een niet-lege code: de server antwoordde, en weigerde. */
+function heeftFoutcode(oorzaak: unknown): boolean {
+  return isRecord(oorzaak) && typeof oorzaak.code === 'string' && oorzaak.code !== ''
+}
+
 /** In een omgeving zonder navigator (of zonder onLine) gaan we uit van online. */
 function standaardOnline(): boolean {
   return typeof navigator === 'undefined' || navigator.onLine !== false
@@ -206,21 +216,26 @@ function standaardOnline(): boolean {
  * item en de rest vast: een netwerkfout, een afgebroken verzoek, een verlopen
  * sessie (42501 met de anon-sleutel, PGRST301), een serverfout, een antwoord
  * zonder databasecode (captive portal, proxy) of een gegooide niet-object.
+ *
+ * Faalt een poging online zonder antwoord van de server (geen code), dan is
+ * dat item `onzeker`: ongedaan maken moet het ook op de server heropenen.
  */
 export async function verstuurWachtrij(
   wachtrij: Wachtrij,
   sluit: (itemId: string, reden: Reden) => Promise<boolean>,
   online: () => boolean = standaardOnline,
 ): Promise<Verzendresultaat> {
-  const resultaat: Verzendresultaat = { resterend: [], verstuurd: 0, vervallen: 0, mislukt: 0 }
+  const resultaat: Verzendresultaat = { resterend: [], verstuurd: 0, vervallen: 0, mislukt: 0, onzeker: null }
   for (let i = 0; i < wachtrij.length; i++) {
     const item = wachtrij[i]!
     try {
       if (await sluit(item.itemId, item.reden)) resultaat.verstuurd++
       else resultaat.vervallen++
     } catch (oorzaak) {
-      if (!online() || !isDefinitieveFout(oorzaak)) {
+      const isOnline = online()
+      if (!isOnline || !isDefinitieveFout(oorzaak)) {
         resultaat.resterend = wachtrij.slice(i)
+        if (isOnline && !heeftFoutcode(oorzaak)) resultaat.onzeker = item.itemId
         return resultaat
       }
       resultaat.mislukt++
