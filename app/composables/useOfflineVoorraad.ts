@@ -21,10 +21,14 @@ import {
 // die al loopt, niet ernaast een tweede starten (spec §6).
 let lopend: Promise<void> | null = null
 
-// Afstrepingen die misschien al op de server staan: hun laatste poging faalde
-// online, zonder antwoord van de server (spec termijn §5). Op moduleniveau,
-// zoals lopend: de plugin verstuurt, de pagina maakt ongedaan. In het geheugen
-// volstaat: de toast met Ongedaan maken overleeft een herlaad ook niet.
+// Afstrepingen die misschien al op de server staan: een poging faalde zonder
+// antwoord van de server terwijl het toestel vooraf online was (spec termijn
+// §5). Op moduleniveau, zoals lopend: de plugin verstuurt, de pagina maakt
+// ongedaan. In het geheugen volstaat: de toast met Ongedaan maken overleeft
+// een herlaad ook niet. Elke nieuwe wachtrij-ingang zet haar merk of wist het
+// (zetInWachtrij), dus een oud merk wordt nooit geërfd. Verder wordt niets
+// gewist: de set groeit met één id per onzekere verzending, en dat is
+// verwaarloosbaar.
 const onzeker = new Set<string>()
 
 export type Ongedaanuitkomst = 'teruggezet' | 'nietBevestigd' | 'nietInWachtrij'
@@ -83,6 +87,8 @@ export function useOfflineVoorraad() {
    * de kopie. true alleen als de wachtrij echt geschreven is: faalt dat (vol,
    * geen eigenaar), dan mag de aanroeper de afstreping niet als bewaard tonen.
    * `onzeker`: de afstreping is misschien al op de server (spec termijn §5).
+   * Zonder `onzeker` wist dit het merk: een nieuwe, zekere afstreping erft
+   * nooit dat van een vorige.
    */
   function zetInWachtrij(item: VoorraadItem, reden: Reden, opties: { onzeker?: boolean } = {}): boolean {
     let gelukt = false
@@ -93,6 +99,7 @@ export function useOfflineVoorraad() {
       schrijfWachtrij(o, [...leesWachtrij(o), { itemId: item.id, reden, eigenaar, afgestreeptOp: new Date().toISOString(), item }])
       gelukt = true
       if (opties.onzeker) onzeker.add(item.id)
+      else onzeker.delete(item.id)
       // Mislukt alleen dit, dan staat de afstreping wel in de wachtrij.
       if (k) schrijfKopie(o, streepAfInKopie(k, item.id))
     })
@@ -107,7 +114,6 @@ export function useOfflineVoorraad() {
       const weg = w.find((i) => i.itemId === itemId)
       if (!weg) return
       gevonden = true
-      onzeker.delete(itemId)
       schrijfWachtrij(o, w.filter((i) => i.itemId !== itemId))
       const k = leesKopie(o)
       if (k) schrijfKopie(o, zetTerugInKopie(k, weg.item))
@@ -169,8 +175,6 @@ export function useOfflineVoorraad() {
     // Herschrijf de wachtrij zoals ze nu in de opslag staat, niet zoals ze was
     // toen het versturen begon (zie voegWachtrijSamen).
     schrijf((o) => schrijfWachtrij(o, voegWachtrijSamen(leesWachtrij(o), mijn, r.resterend)))
-    // Wat niet meer resteert, is verstuurd, vervallen of mislukt: niet meer onzeker.
-    for (const i of mijn) if (!r.resterend.some((x) => x.itemId === i.itemId)) onzeker.delete(i.itemId)
     if (r.onzeker) onzeker.add(r.onzeker)
     if (r.mislukt > 0) toast.add({ title: $i18n.t('offlineVoorraad.notSent', { count: r.mislukt }), color: 'error' })
   }

@@ -440,6 +440,40 @@ test('weigert de server een afstreping en valt daarna de verbinding weg, dan is 
   await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toHaveCount(0)
 })
 
+// Eén eenheid, zodat de tweede afstreping zeker hetzelfde item raakt: bij
+// twee eenheden kiest de groep na het terugzetten misschien de andere.
+test('een opnieuw afgestreept item erft het onzeker-merk niet', async ({ page, context }) => {
+  const naam = `Erfenis${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-erfenis', 'Elin', [{ naam, aantal: 1 }])
+  const vast = await houdEersteAfstrepingVast(page)
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+
+  // Een onzekere afstreping: de termijn verstrijkt, ze gaat in de wachtrij.
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(groep(page, 'Pantry', naam)).toBeHidden()
+  // Ongedaan maken heropent haar op de server.
+  await ongedaan.click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  await expect(ongedaan).toHaveCount(0)
+
+  // Offline opnieuw afgestreept: deze afstreping is zeker niet verstuurd.
+  await context.setOffline(true)
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toBeHidden()
+
+  // Dus haalt ongedaan maken haar alleen uit de wachtrij, zonder verzoek.
+  const patches: string[] = []
+  page.on('request', (r) => { if (isPatch(new URL(r.url()), r.method())) patches.push(r.url()) })
+  await ongedaan.click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(await wachtrijWaarde(page)).toBeNull()
+  expect(patches).toEqual([])
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toHaveCount(0)
+  vast.vrijgeven()
+})
+
 test('een verversing tijdens een verzending zet het afgestreepte item niet terug', async ({ page, context }) => {
   const a = `Verzend${Date.now()}`
   const b = `Ander${Date.now()}`
