@@ -152,6 +152,11 @@ afstrepingen konden niet verstuurd worden". Lopen er twee aanroepen tegelijk
 (plugin en pagina), dan delen ze één lopende verzending, zodat de pagina
 écht wacht op de verzending die de plugin al startte.
 
+Sinds `2026-10-04-termijn-design.md` breekt elk Supabase-verzoek na 10 s af.
+Een afgebroken verzoek telt als netwerkfout. Een afstreping waarvan de
+verzending online zonder antwoord faalde, is onzeker, en ongedaan maken
+heropent ze dan ook op de server.
+
 **Een netwerkfout herkennen.** `isNetwerkfout(oorzaak, online)` is waar als
 `online` onwaar is (`navigator.onLine`). Ook waar is: een fout zonder
 databasecode met een fetchmelding van de browser. Chromium zegt "Failed to
