@@ -24,7 +24,9 @@ function urlVan(invoer: RequestInfo | URL): string {
  *
  * Wijzigt `init` bewust: de herhaallus van @nuxtjs/supabase
  * (runtime/utils/fetch-retry.js) stopt alleen als zijn eigen
- * `init.signal.aborted` waar is.
+ * `init.signal.aborted` waar is. Herhaalt die lus na een TypeError met
+ * hetzelfde `init`, dan volgt de nieuwe poging via dat signaal de termijn van
+ * de eerste. Het hele verzoek, alle pogingen samen, blijft dus binnen `ms`.
  */
 export function metTermijn(fetch: typeof globalThis.fetch, voorvoegsel: string, ms: number): typeof globalThis.fetch {
   return (invoer, init) => {

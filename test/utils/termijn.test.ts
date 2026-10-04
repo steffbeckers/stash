@@ -86,7 +86,15 @@ describe('metTermijn', () => {
 
   it('herkent een Request als invoer', async () => {
     const { fetch, aanroepen } = hangendeFetch()
-    void metTermijn(fetch, SUPABASE, 100)(new Request(`${SUPABASE}/auth/v1/token`)).catch(() => {})
+    void metTermijn(fetch, SUPABASE, 100)(new Request(`${SUPABASE}/rest/v1/x`)).catch(() => {})
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(signaal(aanroepen).aborted).toBe(true)
+  })
+
+  it('herkent een URL als invoer', async () => {
+    const { fetch, aanroepen } = hangendeFetch()
+    void metTermijn(fetch, SUPABASE, 100)(new URL(`${SUPABASE}/rest/v1/x`)).catch(() => {})
 
     await vi.advanceTimersByTimeAsync(100)
     expect(signaal(aanroepen).aborted).toBe(true)
