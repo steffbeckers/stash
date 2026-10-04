@@ -76,7 +76,9 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
   } catch (oorzaak) {
     // zetInWachtrij() staat in de voorwaarde: lukt het bewaren niet (opslag vol),
     // dan valt dit terug op de gewone foutmelding en blijft het item in de lijst.
-    if (item && isNetwerkfout(oorzaak, navigator.onLine) && offline.zetInWachtrij(item, reden)) {
+    // Online en toch een netwerkfout (de termijn, of een verbinding die
+    // wegviel): misschien kreeg de server de afstreping toch.
+    if (item && isNetwerkfout(oorzaak, navigator.onLine) && offline.zetInWachtrij(item, reden, { onzeker: navigator.onLine })) {
       // Geen netwerk: de afstreping wacht op het toestel (spec §5, punt 2).
       // Niet herladen — dat faalt nu ook, en de lijst klopt al.
       items.value = items.value.filter((i) => i.id !== itemId)
@@ -91,18 +93,18 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
   await herlaad()
 }
 
-// Wachtte de afstreping nog, dan volstaat haar uit de wachtrij halen. Was ze
+// Wachtte de afstreping nog, dan volstaat haar uit de wachtrij halen, en was
+// ze onzeker, dan heropent de composable haar ook op de server. Was ze
 // intussen al verstuurd (het netwerk kwam terug), dan is het een gewone
 // ongedaanmaking op de server.
 async function ongedaanMakenOffline(item: VoorraadItem): Promise<void> {
-  // Loopt er een verzending, wacht dan: pas daarna weten we of de afstreping
-  // nog in de wachtrij staat of al op de server is.
-  await offline.wachtOpVerzending()
-  if (offline.haalUitWachtrij(item.id)) {
-    items.value = [...items.value, item]
+  const uitkomst = await offline.ongedaanMakenInWachtrij(item)
+  if (uitkomst === 'nietInWachtrij') {
+    await ongedaanMaken(item.id, item)
     return
   }
-  await ongedaanMaken(item.id, item)
+  items.value = [...items.value, item]
+  if (uitkomst === 'nietBevestigd') toast.add({ title: t('offlineVoorraad.undoUnconfirmed'), color: 'warning' })
 }
 
 async function ongedaanMaken(itemId: string, item: VoorraadItem | undefined): Promise<void> {

@@ -86,6 +86,7 @@
     "pending": "En attente d'envoi : {count}",
     "notSent": "Certains retraits n'ont pas pu être envoyés ({count}).",
     "alreadySent": "Ce retrait a déjà été envoyé et ne peut plus être annulé ici.",
+    "undoUnconfirmed": "La remise en stock n'a pas pu être confirmée. Vérifiez votre stock plus tard.",
     "signOutTitle": "Se déconnecter quand même ?",
     "signOutBody": "Retraits pas encore envoyés : {count}. Ils seront perdus si vous vous déconnectez maintenant."
   },
