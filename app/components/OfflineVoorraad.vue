@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { groepeerPerPlaats, lokaleDatum, vervaltBinnenkort, type Reden } from '~/utils/voorraad'
+import { groepeerPerPlaats, lokaleDatum, vervaltBinnenkort, type Reden, type VoorraadItem } from '~/utils/voorraad'
 import { wachtrijVoor, type Kopie } from '~/utils/offlineVoorraad'
 
 const props = defineProps<{ kopie: Kopie }>()
@@ -41,19 +41,16 @@ function afstrepen(itemId: string, _naam: string, reden: Reden) {
   telWachtend()
   toast.add({
     title: t('offlineVoorraad.queued'),
-    actions: [{ label: t('inventory.undo'), onClick: () => { void maakOngedaan(itemId) } }],
+    actions: [{ label: t('inventory.undo'), onClick: () => { void maakOngedaan(item) } }],
   })
 }
 
-async function maakOngedaan(itemId: string) {
-  // Loopt er een verzending, wacht dan: pas daarna weten we of de afstreping
-  // nog in de wachtrij staat.
-  await offline.wachtOpVerzending()
+async function maakOngedaan(item: VoorraadItem) {
+  const uitkomst = await offline.ongedaanMakenInWachtrij(item)
   // Niet meer in de wachtrij: de afstreping is intussen verstuurd, en
-  // heropenen vraagt de server, die hier niet bereikbaar is.
-  if (!offline.haalUitWachtrij(itemId)) {
-    toast.add({ title: t('offlineVoorraad.alreadySent'), color: 'error' })
-  }
+  // heropenen vraagt de server, die hier misschien niet bereikbaar is.
+  if (uitkomst === 'nietInWachtrij') toast.add({ title: t('offlineVoorraad.alreadySent'), color: 'error' })
+  if (uitkomst === 'nietBevestigd') toast.add({ title: t('offlineVoorraad.undoUnconfirmed'), color: 'warning' })
   emit('gewijzigd')
   telWachtend()
 }

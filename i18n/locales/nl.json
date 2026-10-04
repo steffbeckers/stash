@@ -86,6 +86,7 @@
     "pending": "Wacht op verzending: {count}",
     "notSent": "Sommige afstrepingen konden niet verstuurd worden ({count}).",
     "alreadySent": "Deze afstreping is al verstuurd en kan hier niet meer ongedaan worden.",
+    "undoUnconfirmed": "Ongedaan maken kon niet bevestigd worden. Kijk de voorraad straks na.",
     "signOutTitle": "Toch uitloggen?",
     "signOutBody": "Nog niet verstuurde afstrepingen: {count}. Ze gaan verloren als je nu uitlogt."
   },

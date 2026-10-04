@@ -38,6 +38,11 @@ export interface Verzendresultaat {
   verstuurd: number
   vervallen: number
   mislukt: number
+  /**
+   * Het item waarvan de poging online faalde zonder antwoord van de server:
+   * misschien kreeg de server het toch (spec termijn §5). Anders null.
+   */
+  onzeker: string | null
 }
 
 /** Lezen crasht nooit: de offline-pagina moet altijd openen. */
@@ -166,15 +171,18 @@ export function voegWachtrijSamen(huidig: Wachtrij, verzonden: Wachtrij, restere
  * Is dit een netwerkfout? postgrest-js vangt een mislukte fetch op en geeft
  * `{ code: '', message: `${fetchError.name}: ${fetchError.message}` }` terug
  * (node_modules/@supabase/postgrest-js/dist/index.mjs). Een mislukte fetch is
- * altijd een TypeError ("Failed to fetch", "NetworkError…", "Load failed").
- * Een afgebroken verzoek heeft ook code '', maar begint met "AbortError:".
+ * een TypeError ("Failed to fetch", "NetworkError…", "Load failed"). Een
+ * verzoek dat de termijn afbrak (app/utils/termijn.ts), is een AbortError.
  */
 export function isNetwerkfout(oorzaak: unknown, online: boolean): boolean {
   if (!online) return true
   if (oorzaak instanceof TypeError) return true
-  if (typeof oorzaak !== 'object' || oorzaak === null) return false
-  const { code, message } = oorzaak as { code?: unknown; message?: unknown }
-  return code === '' && typeof message === 'string' && message.startsWith('TypeError: ')
+  if (!isRecord(oorzaak)) return false
+  // De afgebroken fetch zelf, nog niet ingepakt door postgrest-js. Een
+  // DOMException heeft een numerieke code, een databasefout een string.
+  if (oorzaak.name === 'AbortError' && typeof oorzaak.code !== 'string') return true
+  const { code, message } = oorzaak
+  return code === '' && typeof message === 'string' && (message.startsWith('TypeError: ') || message.startsWith('AbortError: '))
 }
 
 /**
@@ -184,6 +192,11 @@ export function isNetwerkfout(oorzaak: unknown, online: boolean): boolean {
  */
 function isDefinitieveFout(oorzaak: unknown): boolean {
   return isRecord(oorzaak) && typeof oorzaak.code === 'string' && /^2[23][0-9A-Z]{3}$/.test(oorzaak.code)
+}
+
+/** Een niet-lege code: de server antwoordde, en weigerde. */
+export function heeftFoutcode(oorzaak: unknown): boolean {
+  return isRecord(oorzaak) && typeof oorzaak.code === 'string' && oorzaak.code !== ''
 }
 
 /** In een omgeving zonder navigator (of zonder onLine) gaan we uit van online. */
@@ -203,21 +216,30 @@ function standaardOnline(): boolean {
  * item en de rest vast: een netwerkfout, een afgebroken verzoek, een verlopen
  * sessie (42501 met de anon-sleutel, PGRST301), een serverfout, een antwoord
  * zonder databasecode (captive portal, proxy) of een gegooide niet-object.
+ *
+ * Faalt een poging zonder antwoord van de server (geen code) terwijl het
+ * toestel vóór de poging online was, dan is dat item `onzeker`: ongedaan maken
+ * moet het ook op de server heropenen. Vóór de poging, niet in de `catch`:
+ * valt de verbinding weg midden in het antwoord, dan is het toestel daar al
+ * offline, terwijl de server de afstreping misschien heeft.
  */
 export async function verstuurWachtrij(
   wachtrij: Wachtrij,
   sluit: (itemId: string, reden: Reden) => Promise<boolean>,
   online: () => boolean = standaardOnline,
 ): Promise<Verzendresultaat> {
-  const resultaat: Verzendresultaat = { resterend: [], verstuurd: 0, vervallen: 0, mislukt: 0 }
+  const resultaat: Verzendresultaat = { resterend: [], verstuurd: 0, vervallen: 0, mislukt: 0, onzeker: null }
   for (let i = 0; i < wachtrij.length; i++) {
     const item = wachtrij[i]!
+    const vooraf = online()
     try {
       if (await sluit(item.itemId, item.reden)) resultaat.verstuurd++
       else resultaat.vervallen++
     } catch (oorzaak) {
-      if (!online() || !isDefinitieveFout(oorzaak)) {
+      const isOnline = online()
+      if (!isOnline || !isDefinitieveFout(oorzaak)) {
         resultaat.resterend = wachtrij.slice(i)
+        if (vooraf && !heeftFoutcode(oorzaak)) resultaat.onzeker = item.itemId
         return resultaat
       }
       resultaat.mislukt++

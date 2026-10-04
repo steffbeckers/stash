@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { routePath } from '../routes.config'
 import { signIn, createHousehold, bundles, waitForHydration, openUserMenu } from './helpers'
 import { KOPIE_SLEUTEL, WACHTRIJ_SLEUTEL } from '../app/utils/offlineVoorraad'
@@ -76,6 +76,26 @@ function slot(): { vrij: Promise<void>; vrijgeven: () => void } {
 }
 
 /**
+ * Laat de eerste PATCH op inventory_item bij de server aankomen, maar houdt het
+ * antwoord tegen tot `vrijgeven()`. De pagina breekt het verzoek af op de
+ * termijn, terwijl de server de afstreping wel heeft. Elke volgende PATCH gaat
+ * gewoon door, of wordt afgebroken met `daarnaAfbreken`.
+ */
+async function houdEersteAfstrepingVast(page: Page, opties: { daarnaAfbreken?: boolean } = {}) {
+  const { vrij, vrijgeven } = slot()
+  let pogingen = 0
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
+    pogingen++
+    if (pogingen > 1) return opties.daarnaAfbreken ? route.abort() : route.fallback()
+    const antwoord = await route.fetch()
+    await vrij
+    await route.fulfill({ response: antwoord }).catch(() => {})
+  })
+  return { vrijgeven, pogingen: () => pogingen }
+}
+
+/**
  * Zet een afstreping van het item met deze naam in de wachtrij, zoals de
  * pagina dat offline doet. Zonder eigenaar: die van de kopie, dus deze gebruiker.
  */
@@ -115,10 +135,15 @@ test('ongedaan maken zonder netwerk haalt de afstreping uit de wachtrij', async 
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
 
   // Wachtrijtak: nog offline, dus de afstreping wacht nog en volstaat het haar
-  // uit de wachtrij te halen. Er gaat niets naar de server.
+  // uit de wachtrij te halen. Ze is nooit verstuurd, dus zeker, en er gaat
+  // niets naar de server.
+  const patches: string[] = []
+  page.on('request', (r) => { if (isPatch(new URL(r.url()), r.method())) patches.push(r.url()) })
   await page.getByRole('button', { name: en.inventory.undo }).click()
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   expect(await wachtrijWaarde(page)).toBeNull()
+  expect(patches).toEqual([])
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toHaveCount(0)
 
   await context.setOffline(false)
   await page.reload()
@@ -261,6 +286,242 @@ test('de voorraadpagina wacht op een verzending die de plugin al gestart had', a
   expect(volgorde).toEqual(['afstreping verstuurd', 'voorraad gevraagd'])
   expect(verzendingen).toBe(1)
   expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('een hangende voorraad() geeft na de termijn de foutstand, na één poging', async ({ page }) => {
+  await maakHuishoudenMet(page, 'termijn-laden', 'Lars', [])
+
+  // voorraad() bereikt de server nooit. Alleen de termijn kan het afbreken.
+  let pogingen = 0
+  const { vrij, vrijgeven } = slot()
+  await page.route('**/rest/v1/rpc/voorraad', async (route) => {
+    pogingen++
+    await vrij
+    await route.abort().catch(() => {})
+  })
+  await page.reload()
+
+  // Ruim boven de termijn van 10 s, ruim onder drie pogingen van elk 10 s.
+  await expect(page.getByText(en.householdSettings.error, { exact: true })).toBeVisible({ timeout: 20_000 })
+  // Eén: de herhaallus van @nuxtjs/supabase zag dat het verzoek afgebroken was.
+  expect(pogingen).toBe(1)
+  vrijgeven()
+})
+
+test('een hangende afstreping komt na de termijn in de wachtrij, en ongedaan maken heropent haar op de server', async ({ page }) => {
+  const naam = `Hang${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-hang', 'Hanna', [{ naam, aantal: 2 }])
+  const vast = await houdEersteAfstrepingVast(page)
+
+  await streepAf(page, naam)
+  // Pas na de termijn van 10 s: tot dan wacht de pagina op het antwoord.
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(vast.pogingen()).toBe(1)
+
+  // De server heeft de afstreping wel. Ongedaan maken moet haar daar heropenen.
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+
+  vast.vrijgeven()
+  await page.reload()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+})
+
+test('ongedaan maken van een afstreping die de wachtrij onzeker verstuurde, heropent haar op de server', async ({ page, context }) => {
+  const naam = `Onzeker${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-wachtrij', 'Otis', [{ naam, aantal: 2 }])
+
+  await context.setOffline(true)
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  // De muis op de toast pauzeert zijn timer: hij moet de termijn overleven.
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+
+  const vast = await houdEersteAfstrepingVast(page)
+  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
+  await context.setOffline(false)
+  await verzonden
+
+  // Ongedaan maken wacht op de verzending, die na de termijn onzeker eindigt.
+  await ongedaan.click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2', { timeout: 20_000 })
+  expect(await wachtrijWaarde(page)).toBeNull()
+
+  vast.vrijgeven()
+  await page.reload()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+})
+
+test('faalt ook het heropenen, dan zegt ongedaan maken dat het niet bevestigd is', async ({ page }) => {
+  const naam = `Onbevestigd${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-onbevestigd', 'Uma', [{ naam, aantal: 2 }])
+  const vast = await houdEersteAfstrepingVast(page, { daarnaAfbreken: true })
+
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toBeVisible()
+  // Lokaal staat het item terug; de server weet het pas bij de volgende verversing.
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+  vast.vrijgeven()
+})
+
+/**
+ * Laat de eerste PATCH op inventory_item bij de server aankomen, gaat dan
+ * offline, en geeft de pagina daarna `antwoord`: zonder antwoord een afgebroken
+ * verzoek. Zo valt de verbinding weg midden in het antwoord: vóór de poging was
+ * het toestel online, in de catch is het offline.
+ */
+async function verliesVerbindingTijdensAfstreping(
+  page: Page,
+  context: BrowserContext,
+  antwoord?: { status: number; json: unknown },
+): Promise<{ afgehandeld: Promise<void> }> {
+  let gezien = false
+  let afgehandeld!: () => void
+  const klaar = new Promise<void>((r) => { afgehandeld = r })
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method()) || gezien) return route.fallback()
+    gezien = true
+    await route.fetch()
+    await context.setOffline(true)
+    await page.waitForFunction(() => !navigator.onLine)
+    if (antwoord) await route.fulfill(antwoord).catch(() => {})
+    else await route.abort().catch(() => {})
+    afgehandeld()
+  })
+  return { afgehandeld: klaar }
+}
+
+test('valt de verbinding weg tijdens een afstreping, dan is ze onzeker', async ({ page, context }) => {
+  const naam = `Wegval${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-wegval', 'Wout', [{ naam, aantal: 2 }])
+  const vast = await verliesVerbindingTijdensAfstreping(page, context)
+
+  await streepAf(page, naam)
+  await vast.afgehandeld
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+
+  // De server heeft de afstreping. Ongedaan maken probeert haar daar te
+  // heropenen, en dat kan offline niet: dus niet bevestigd, en niet stil
+  // alleen uit de wachtrij gehaald.
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('weigert de server een afstreping en valt daarna de verbinding weg, dan is ze niet onzeker', async ({ page, context }) => {
+  const naam = `Geweigerd${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-geweigerd', 'Gijs', [{ naam, aantal: 2 }])
+  // Een antwoord met een databasecode: de server antwoordde, en weigerde.
+  const vast = await verliesVerbindingTijdensAfstreping(page, context, {
+    status: 403,
+    json: { code: '42501', message: 'permission denied for table inventory_item', details: null, hint: null },
+  })
+
+  await streepAf(page, naam)
+  await vast.afgehandeld
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+
+  // Zeker niet toegepast: ongedaan maken haalt haar alleen uit de wachtrij.
+  const patches: string[] = []
+  page.on('request', (r) => { if (isPatch(new URL(r.url()), r.method())) patches.push(r.url()) })
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+  expect(patches).toEqual([])
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toHaveCount(0)
+})
+
+// Eén eenheid, zodat de tweede afstreping zeker hetzelfde item raakt: bij
+// twee eenheden kiest de groep na het terugzetten misschien de andere.
+test('een opnieuw afgestreept item erft het onzeker-merk niet', async ({ page, context }) => {
+  const naam = `Erfenis${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-erfenis', 'Elin', [{ naam, aantal: 1 }])
+  const vast = await houdEersteAfstrepingVast(page)
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+
+  // Een onzekere afstreping: de termijn verstrijkt, ze gaat in de wachtrij.
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(groep(page, 'Pantry', naam)).toBeHidden()
+  // Ongedaan maken heropent haar op de server.
+  await ongedaan.click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  await expect(ongedaan).toHaveCount(0)
+
+  // Offline opnieuw afgestreept: deze afstreping is zeker niet verstuurd.
+  await context.setOffline(true)
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toBeHidden()
+
+  // Dus haalt ongedaan maken haar alleen uit de wachtrij, zonder verzoek.
+  const patches: string[] = []
+  page.on('request', (r) => { if (isPatch(new URL(r.url()), r.method())) patches.push(r.url()) })
+  await ongedaan.click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(await wachtrijWaarde(page)).toBeNull()
+  expect(patches).toEqual([])
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toHaveCount(0)
+  vast.vrijgeven()
+})
+
+test('een verversing tijdens het heropenen zet het item niet dubbel terug', async ({ page }) => {
+  const a = `Dubbel${Date.now()}`
+  const b = `Tussen${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-dubbel', 'Dora', [
+    { naam: a, aantal: 2 },
+    { naam: b, aantal: 1 },
+  ])
+
+  // De eerste PATCH (a sluiten) komt aan maar blijft hangen tot na de termijn.
+  // De tweede (a heropenen) komt aan, en haar antwoord wacht op de test.
+  // Elke volgende gaat door.
+  const afstreping = slot()
+  const heropening = slot()
+  let opServer!: () => void
+  const heropendOpServer = new Promise<void>((r) => { opServer = r })
+  let pogingen = 0
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
+    pogingen++
+    if (pogingen > 2) return route.fallback()
+    const antwoord = await route.fetch()
+    if (pogingen === 2) opServer()
+    await (pogingen === 1 ? afstreping.vrij : heropening.vrij)
+    await route.fulfill({ response: antwoord }).catch(() => {})
+  })
+
+  await streepAf(page, a)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(groep(page, 'Pantry', a)).toContainText('×1')
+
+  // Ongedaan maken: de server heropent a, het antwoord blijft hangen.
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await heropendOpServer
+
+  // b afstrepen ververst de lijst: de server heeft a al weer open.
+  await streepAf(page, b)
+  await expect(groep(page, 'Pantry', b)).toBeHidden()
+  await expect(groep(page, 'Pantry', a)).toContainText('×2')
+
+  // Binnen de termijn vrijgeven. Pas als het antwoord helemaal binnen is en
+  // de pagina daarna een taak verder is, heeft ze het item teruggezet.
+  const heropend = page.waitForResponse((r) => isPatch(new URL(r.url()), r.request().method()) && r.url().includes('status=eq.closed'))
+  heropening.vrijgeven()
+  await (await heropend).finished()
+  await page.evaluate(() => new Promise((r) => setTimeout(r, 0)))
+  await expect(groep(page, 'Pantry', a)).toContainText('×2')
+  await expect(groep(page, 'Pantry', a)).not.toContainText('×3')
+  afstreping.vrijgeven()
 })
 
 test('een verversing tijdens een verzending zet het afgestreepte item niet terug', async ({ page, context }) => {
@@ -458,6 +719,58 @@ test('ongedaan maken op de offline-pagina zet het item terug', async ({ page }) 
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toHaveCount(0)
   expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('ongedaan maken op de offline-pagina heropent een onzeker verstuurde afstreping op de server', async ({ page }) => {
+  const naam = `Kelderhang${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-offlinepagina', 'Kees', [{ naam, aantal: 2 }])
+
+  await page.goto(routePath('offline', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await streepAf(page, naam)
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+
+  // Het online-event laat de plugin versturen; de server krijgt de afstreping,
+  // de pagina het antwoord niet.
+  const vast = await houdEersteAfstrepingVast(page)
+  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await verzonden
+
+  await ongedaan.click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2', { timeout: 20_000 })
+
+  vast.vrijgeven()
+  await page.goto(routePath('inventory', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+})
+
+test('faalt het heropenen op de offline-pagina, dan zegt ongedaan maken dat het niet bevestigd is', async ({ page }) => {
+  const naam = `Kelderfout${Date.now()}`
+  await maakHuishoudenMet(page, 'termijn-offlinefout', 'Koen', [{ naam, aantal: 2 }])
+
+  await page.goto(routePath('offline', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await streepAf(page, naam)
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+
+  // De server krijgt de afstreping, de pagina het antwoord niet; het
+  // heropenen daarna wordt afgebroken.
+  const vast = await houdEersteAfstrepingVast(page, { daarnaAfbreken: true })
+  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await verzonden
+
+  await ongedaan.click()
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  expect(await wachtrijWaarde(page)).toBeNull()
+  vast.vrijgeven()
 })
 
 test('lukt het bewaren in de wachtrij niet op de offline-pagina, dan is het een gewone fout', async ({ page }) => {

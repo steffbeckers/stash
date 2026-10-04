@@ -159,9 +159,24 @@ describe('isNetwerkfout', () => {
     expect(isNetwerkfout({ code: '42501', message: 'permission denied for table inventory_item' }, true)).toBe(false)
   })
 
-  // Zelfde lege code, maar geen netwerk: een afgebroken verzoek.
-  it('herkent een afgebroken verzoek niet als netwerkfout', () => {
-    expect(isNetwerkfout({ code: '', message: 'AbortError: signal is aborted without reason' }, true)).toBe(false)
+  // De termijn (app/utils/termijn.ts) breekt af met een AbortError; postgrest-js
+  // maakt daar `AbortError: …` met code '' van.
+  it('herkent een afgebroken verzoek als netwerkfout', () => {
+    expect(isNetwerkfout({ code: '', message: 'AbortError: signal is aborted without reason' }, true)).toBe(true)
+  })
+
+  it('herkent een rauwe AbortError als netwerkfout', () => {
+    expect(isNetwerkfout(new DOMException('afgebroken', 'AbortError'), true)).toBe(true)
+  })
+
+  // De code beslist, ook als de melding toevallig op een afbreking lijkt.
+  it('herkent een databasefout met AbortError in de melding niet als netwerkfout', () => {
+    expect(isNetwerkfout({ code: '23514', message: 'AbortError: x' }, true)).toBe(false)
+    expect(isNetwerkfout({ name: 'AbortError', code: '23514', message: 'x' }, true)).toBe(false)
+  })
+
+  it('herkent een andere DOMException niet als netwerkfout', () => {
+    expect(isNetwerkfout(new DOMException('vol', 'QuotaExceededError'), true)).toBe(false)
   })
 })
 
@@ -170,7 +185,7 @@ describe('verstuurWachtrij', () => {
 
   it('telt verstuurd en vervallen, en laat niets achter', async () => {
     const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async (id) => id === 'a')
-    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 1, mislukt: 0 })
+    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 1, mislukt: 0, onzeker: null })
   })
 
   // Het netwerk is weg: de rest proberen heeft geen zin en mag niet verloren gaan.
@@ -215,14 +230,14 @@ describe('verstuurWachtrij', () => {
       return true
     })
     expect(geprobeerd).toEqual(['a', 'b'])
-    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 0, mislukt: 1 })
+    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 0, mislukt: 1, onzeker: null })
   })
 
   it('laat een afstreping met een datafout (22P02) vallen', async () => {
     const r = await verstuurWachtrij([inWachtrij('a')], async () => {
       throw { code: '22P02', message: 'invalid input syntax for type uuid' }
     })
-    expect(r).toEqual({ resterend: [], verstuurd: 0, vervallen: 0, mislukt: 1 })
+    expect(r).toEqual({ resterend: [], verstuurd: 0, vervallen: 0, mislukt: 1, onzeker: null })
   })
 
   // Een verlopen sessie: supabase-js stuurt dan de anon-sleutel mee, en anon
@@ -435,6 +450,55 @@ describe('verstuurWachtrij bij onzekerheid', () => {
     const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw worp }, () => true)
     expect(r.resterend.map((i) => i.itemId)).toEqual(['a'])
     expect(r.mislukt).toBe(0)
+  })
+})
+
+describe('verstuurWachtrij en onzeker verstuurd', () => {
+  const afgebroken = { code: '', message: 'AbortError: signal is aborted without reason' }
+
+  // Online en zonder antwoord van de server: misschien kwam de afstreping toch aan.
+  it('meldt het item dat online zonder antwoord faalde als onzeker', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b'), inWachtrij('c')], async (id) => {
+      if (id === 'b') throw afgebroken
+      return true
+    }, () => true)
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['b', 'c'])
+    expect(r.onzeker).toBe('b')
+  })
+
+  it('meldt niets als onzeker als het toestel offline was', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => { throw afgebroken }, () => false)
+    expect(r.resterend.length).toBe(1)
+    expect(r.onzeker).toBeNull()
+  })
+
+  // De verbinding viel weg midden in het antwoord: in de catch is het toestel
+  // al offline, maar de server kan de afstreping hebben.
+  it('meldt het item als onzeker als het toestel pas tijdens de poging offline ging', async () => {
+    let online = true
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => {
+      online = false
+      throw new TypeError('Failed to fetch')
+    }, () => online)
+    expect(r.resterend.map((i) => i.itemId)).toEqual(['a'])
+    expect(r.onzeker).toBe('a')
+  })
+
+  // Een code: de server antwoordde en weigerde. Dan is de afstreping zeker niet toegepast.
+  it('meldt een fout met een code niet als onzeker', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a')], async () => {
+      throw { code: '42501', message: 'permission denied for table inventory_item' }
+    }, () => true)
+    expect(r.resterend.length).toBe(1)
+    expect(r.onzeker).toBeNull()
+  })
+
+  it('meldt niets als onzeker bij een definitieve fout of bij succes', async () => {
+    const r = await verstuurWachtrij([inWachtrij('a'), inWachtrij('b')], async (id) => {
+      if (id === 'a') throw { code: '23514', message: 'new row violates check constraint' }
+      return true
+    }, () => true)
+    expect(r).toEqual({ resterend: [], verstuurd: 1, vervallen: 0, mislukt: 1, onzeker: null })
   })
 })
 

@@ -21,6 +21,18 @@ import {
 // die al loopt, niet ernaast een tweede starten (spec §6).
 let lopend: Promise<void> | null = null
 
+// Afstrepingen die misschien al op de server staan: een poging faalde zonder
+// antwoord van de server terwijl het toestel vooraf online was (spec termijn
+// §5). Op moduleniveau, zoals lopend: de plugin verstuurt, de pagina maakt
+// ongedaan. In het geheugen volstaat: de toast met Ongedaan maken overleeft
+// een herlaad ook niet. Elke nieuwe wachtrij-ingang zet haar merk of wist het
+// (zetInWachtrij), dus een oud merk wordt nooit geërfd. Verder wordt niets
+// gewist: de set groeit met één id per onzekere verzending, en dat is
+// verwaarloosbaar.
+const onzeker = new Set<string>()
+
+export type Ongedaanuitkomst = 'teruggezet' | 'nietBevestigd' | 'nietInWachtrij'
+
 /**
  * De lokale kopie en de wachtrij, clientzijdig. Zie spec §4–§6.
  *
@@ -31,7 +43,7 @@ export function useOfflineVoorraad() {
   const user = useSupabaseUser()
   const toast = useToast()
   const { $i18n } = useNuxtApp()
-  const { close } = useInventory()
+  const { close, reopen } = useInventory()
   const supabase = useSupabaseClient()
 
   function opslag(): Storage | null {
@@ -74,8 +86,11 @@ export function useOfflineVoorraad() {
    * De eigenaar is de ingelogde gebruiker, of — offline zonder sessie — die van
    * de kopie. true alleen als de wachtrij echt geschreven is: faalt dat (vol,
    * geen eigenaar), dan mag de aanroeper de afstreping niet als bewaard tonen.
+   * `onzeker`: de afstreping is misschien al op de server (spec termijn §5).
+   * Zonder `onzeker` wist dit het merk: een nieuwe, zekere afstreping erft
+   * nooit dat van een vorige.
    */
-  function zetInWachtrij(item: VoorraadItem, reden: Reden): boolean {
+  function zetInWachtrij(item: VoorraadItem, reden: Reden, opties: { onzeker?: boolean } = {}): boolean {
     let gelukt = false
     schrijf((o) => {
       const k = leesKopie(o)
@@ -83,6 +98,8 @@ export function useOfflineVoorraad() {
       if (!eigenaar) return
       schrijfWachtrij(o, [...leesWachtrij(o), { itemId: item.id, reden, eigenaar, afgestreeptOp: new Date().toISOString(), item }])
       gelukt = true
+      if (opties.onzeker) onzeker.add(item.id)
+      else onzeker.delete(item.id)
       // Mislukt alleen dit, dan staat de afstreping wel in de wachtrij.
       if (k) schrijfKopie(o, streepAfInKopie(k, item.id))
     })
@@ -158,6 +175,7 @@ export function useOfflineVoorraad() {
     // Herschrijf de wachtrij zoals ze nu in de opslag staat, niet zoals ze was
     // toen het versturen begon (zie voegWachtrijSamen).
     schrijf((o) => schrijfWachtrij(o, voegWachtrijSamen(leesWachtrij(o), mijn, r.resterend)))
+    if (r.onzeker) onzeker.add(r.onzeker)
     if (r.mislukt > 0) toast.add({ title: $i18n.t('offlineVoorraad.notSent', { count: r.mislukt }), color: 'error' })
   }
 
@@ -169,6 +187,27 @@ export function useOfflineVoorraad() {
   /** Wacht op de lopende verzending, als die er is. Wie de wachtrij wil wijzigen, wacht eerst. */
   function wachtOpVerzending(): Promise<void> {
     return lopend ?? Promise.resolve()
+  }
+
+  /**
+   * Ongedaan maken van een afstreping uit de wachtrij (spec termijn §6).
+   * 'nietInWachtrij': ze is intussen verstuurd; de aanroeper beslist wat dan.
+   * Was ze onzeker, dan ook heropenen op de server: reopen() filtert op
+   * status 'closed', dus had de server haar niet, dan raakt het niets.
+   */
+  async function ongedaanMakenInWachtrij(item: VoorraadItem): Promise<Ongedaanuitkomst> {
+    // Loopt er een verzending, wacht dan: pas daarna weten we of de afstreping
+    // nog in de wachtrij staat, en of ze onzeker is.
+    await wachtOpVerzending()
+    const wasOnzeker = onzeker.has(item.id)
+    if (!haalUitWachtrij(item.id)) return 'nietInWachtrij'
+    if (!wasOnzeker) return 'teruggezet'
+    try {
+      await reopen(item.id)
+      return 'teruggezet'
+    } catch {
+      return 'nietBevestigd'
+    }
   }
 
   return {
@@ -184,5 +223,6 @@ export function useOfflineVoorraad() {
     wachtendVoorMij,
     verstuur,
     wachtOpVerzending,
+    ongedaanMakenInWachtrij,
   }
 }

@@ -8,7 +8,7 @@ import {
   type Reden,
   type VoorraadItem,
 } from '~/utils/voorraad'
-import { isNetwerkfout, wachtrijVoor } from '~/utils/offlineVoorraad'
+import { heeftFoutcode, isNetwerkfout, wachtrijVoor } from '~/utils/offlineVoorraad'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
@@ -60,6 +60,9 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
   // Nu vastgelegd: na de verversing staat het item niet meer in de lijst, en
   // ongedaan maken heeft het nodig om de kopie bij te werken.
   const item = items.value.find((i) => i.id === itemId)
+  // Vóór de poging: valt de verbinding weg midden in het antwoord, dan is het
+  // toestel in de catch al offline, terwijl de server de afstreping kan hebben.
+  const vooraf = navigator.onLine
   try {
     const gelukt = await close(itemId, reden)
     if (gelukt) {
@@ -76,9 +79,13 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
   } catch (oorzaak) {
     // zetInWachtrij() staat in de voorwaarde: lukt het bewaren niet (opslag vol),
     // dan valt dit terug op de gewone foutmelding en blijft het item in de lijst.
-    if (item && isNetwerkfout(oorzaak, navigator.onLine) && offline.zetInWachtrij(item, reden)) {
-      // Geen netwerk: de afstreping wacht op het toestel (spec §5, punt 2).
-      // Niet herladen — dat faalt nu ook, en de lijst klopt al.
+    // Was het toestel vóór de poging online en kwam er geen antwoord van de
+    // server (de termijn, of een verbinding die wegviel), dan kreeg de server
+    // de afstreping misschien toch: onzeker.
+    if (item && isNetwerkfout(oorzaak, navigator.onLine) && offline.zetInWachtrij(item, reden, { onzeker: vooraf && !heeftFoutcode(oorzaak) })) {
+      // Geen netwerk of geen antwoord binnen de termijn: de afstreping wacht op
+      // het toestel (spec §5, punt 2; spec termijn §4). Niet herladen: dat
+      // faalt nu waarschijnlijk ook, en de lijst klopt al.
       items.value = items.value.filter((i) => i.id !== itemId)
       toast.add({
         title: t('offlineVoorraad.queued'),
@@ -91,18 +98,20 @@ async function afstrepen(itemId: string, naam: string, reden: Reden): Promise<vo
   await herlaad()
 }
 
-// Wachtte de afstreping nog, dan volstaat haar uit de wachtrij halen. Was ze
+// Wachtte de afstreping nog, dan volstaat haar uit de wachtrij halen, en was
+// ze onzeker, dan heropent de composable haar ook op de server. Was ze
 // intussen al verstuurd (het netwerk kwam terug), dan is het een gewone
 // ongedaanmaking op de server.
 async function ongedaanMakenOffline(item: VoorraadItem): Promise<void> {
-  // Loopt er een verzending, wacht dan: pas daarna weten we of de afstreping
-  // nog in de wachtrij staat of al op de server is.
-  await offline.wachtOpVerzending()
-  if (offline.haalUitWachtrij(item.id)) {
-    items.value = [...items.value, item]
+  const uitkomst = await offline.ongedaanMakenInWachtrij(item)
+  if (uitkomst === 'nietInWachtrij') {
+    await ongedaanMaken(item.id, item)
     return
   }
-  await ongedaanMaken(item.id, item)
+  // Eerst filteren: een verversing tijdens het heropenen (tot de termijn) kan
+  // het item al teruggezet hebben, en dan stond het er twee keer.
+  items.value = [...items.value.filter((i) => i.id !== item.id), item]
+  if (uitkomst === 'nietBevestigd') toast.add({ title: t('offlineVoorraad.undoUnconfirmed'), color: 'warning' })
 }
 
 async function ongedaanMaken(itemId: string, item: VoorraadItem | undefined): Promise<void> {
