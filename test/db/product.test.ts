@@ -520,6 +520,28 @@ describe('create_product met een gekozen id', () => {
     })
   })
 
+  // Een verwijderd account laat een product met created_by null achter. Dat
+  // is niemands product meer: een ander mag het niet als eigen product krijgen.
+  // `maker <> actor` zou hier null geven en het verweesde product teruggeven.
+  it('weigert het id van een product zonder maker, en verandert niets', async () => {
+    const eerste = await createUser('verwijderde-maker@example.com')
+    const ander = await createUser('andere-gebruiker@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, eerste)
+      await enableRls(tx)
+      await tx`select create_product(null, null, null, null, 'nl', 'Melk', ${gekozen})`
+      await tx`reset role`
+      await tx`update product set created_by = null where id = ${gekozen}`
+      await actAs(tx, ander)
+      await expect(
+        tx.savepoint((sp) => (sp as unknown as Sql)`select create_product(null, null, null, null, 'nl', 'Kaas', ${gekozen})`),
+      ).rejects.toThrow(/product bestaat al/)
+      await tx`reset role`
+      const namen = await tx<{ name: string }[]>`select name from product_translation where product_id = ${gekozen}`
+      expect(namen.map((n) => n.name)).toEqual(['Melk'])
+    })
+  })
+
   it('maakt zonder id een nieuw product, zoals voorheen', async () => {
     const maker = await createUser('maker-zonder-id@example.com')
     await withTx(async (tx) => {
