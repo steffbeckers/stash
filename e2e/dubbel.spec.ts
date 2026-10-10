@@ -22,19 +22,26 @@ function slot(): { vrij: Promise<void>; vrijgeven: () => void } {
  * Laat het eerste verzoek dat aan `past` voldoet bij de server aankomen, maar
  * houdt het antwoord tegen: de pagina breekt het af op de termijn, terwijl de
  * server het al verwerkte. Elk volgend verzoek gaat gewoon door.
+ *
+ * `aangekomen` wordt vervuld zodra de server het eerste verzoek verwerkte. De
+ * test wacht daarop vóór de tweede poging: zonder die zekerheid scheidt alleen
+ * de termijn van 10 s de pogingen, en zou een trage `route.fetch()` de tweede
+ * poging eerst laten aankomen, zodat de test groen wordt zonder de bewaking.
  */
 async function houdEersteAntwoordVast(page: Page, patroon: string, past: (r: Request) => boolean) {
   const { vrij, vrijgeven } = slot()
+  const { vrij: aangekomen, vrijgeven: meldAangekomen } = slot()
   let pogingen = 0
   await page.route(patroon, async (route) => {
     if (!past(route.request())) return route.fallback()
     pogingen++
     if (pogingen > 1) return route.fallback()
     const antwoord = await route.fetch()
+    meldAangekomen()
     await vrij
     await route.fulfill({ response: antwoord }).catch(() => {})
   })
-  return { vrijgeven }
+  return { vrijgeven, aangekomen }
 }
 
 /** Hoeveel producten met deze naam er in de catalogus staan, rechtstreeks in de lokale database. */
@@ -65,6 +72,7 @@ test('opnieuw opslaan na een afgebroken toevoeging maakt geen dubbel', async ({ 
   // Pas na de termijn van 10 s: de server heeft de twee items, de pagina het antwoord niet.
   await expect(page.getByText(en.householdSettings.error, { exact: true })).toBeVisible({ timeout: 20_000 })
 
+  await vast.aangekomen
   // Opnieuw opslaan met dezelfde gegevens: dezelfde id's, dus geen dubbel.
   await page.getByRole('button', { name: en.inventory.save }).click()
   await expect(page).toHaveURL(routePath('inventory', 'en'))
@@ -87,6 +95,7 @@ test('opnieuw aanmaken na een afgebroken productaanmaak in de productkiezer maak
   await page.getByRole('button', { name: en.inventory.createProduct }).click()
   await expect(page.getByText(en.householdSettings.error, { exact: true })).toBeVisible({ timeout: 20_000 })
 
+  await vast.aangekomen
   await page.getByRole('button', { name: en.inventory.createProduct }).click()
   await expect(page.getByRole('button', { name: en.inventory.changeProduct })).toBeVisible()
   expect(await aantalVertalingen(naam)).toBe(1)
@@ -105,6 +114,7 @@ test('opnieuw bewaren na een afgebroken productaanmaak op de pagina nieuw produc
   await page.getByRole('button', { name: en.products.save }).click()
   await expect(page.getByText(en.householdSettings.error, { exact: true })).toBeVisible({ timeout: 20_000 })
 
+  await vast.aangekomen
   await page.getByRole('button', { name: en.products.save }).click()
   await expect(page).toHaveURL(/\/products\/[0-9a-f-]{36}/)
   expect(await aantalVertalingen(naam)).toBe(1)
