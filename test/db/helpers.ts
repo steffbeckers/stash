@@ -22,7 +22,13 @@ export type Sql = ReturnType<typeof postgres>
 const url = process.env.DATABASE_URL
 if (!url) throw new Error('DATABASE_URL ontbreekt; kopieer .env.example naar .env')
 
+/**
+ * Draait fn met één verbinding. resetDb, createUser en withTx verbinden
+ * hierlangs, en withTwoConnections controleert zelf: elke helper weigert een
+ * niet-lokale host, vóór er verbonden wordt. Ook de e2e laadt dit bestand.
+ */
 export async function withDb(fn: (sql: Sql) => Promise<void>): Promise<void> {
+  assertLocalDatabase(url!)
   const sql = postgres(url!, { max: 1 })
   try {
     await fn(sql)
@@ -36,14 +42,17 @@ export async function withDb(fn: (sql: Sql) => Promise<void>): Promise<void> {
  * in public plus auth.users cascade, tegen wat DATABASE_URL toevallig ook
  * is. Plan 8 heeft .env straks nodig gericht op het gehoste project, en dan
  * vernietigt één `npm run test:db` dat project. Deze guard weigert te
- * draaien tegen alles behalve een lokale host.
+ * draaien tegen alles behalve een lokale host. Sinds eigen-afstreping staat
+ * ze in elke helper die verbindt: ook createUser en withTx schrijven, en de
+ * e2e roept ze aan.
  */
 export function assertLocalDatabase(databaseUrl: string): void {
   const host = new URL(databaseUrl).hostname
   if (host !== 'localhost' && host !== '127.0.0.1') {
     throw new Error(
-      `resetDb() weigert te draaien tegen host "${host}". Dit commando truncate't elke tabel in ` +
-        `public plus auth.users cascade — alleen "localhost" of "127.0.0.1" zijn toegestaan. ` +
+      `De databasehelpers weigeren te draaien tegen host "${host}". Ze schrijven in de database, en ` +
+        `resetDb() truncate't elke tabel in public plus auth.users cascade — alleen "localhost" of ` +
+        `"127.0.0.1" zijn toegestaan. ` +
         'Wijs DATABASE_URL in .env naar de lokale Supabase-stack (npx supabase start).',
     )
   }
@@ -123,6 +132,7 @@ export async function enableRls(tx: Sql, role: 'authenticated' | 'anon' = 'authe
 export async function withTwoConnections(
   fn: (a: Sql, b: Sql) => Promise<void>,
 ): Promise<void> {
+  assertLocalDatabase(url!)
   const a = postgres(url!, { max: 1 })
   const b = postgres(url!, { max: 1 })
   try {
