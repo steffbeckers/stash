@@ -29,7 +29,7 @@ function sloten(): LockManager | undefined {
   return import.meta.client && typeof navigator !== 'undefined' ? navigator.locks : undefined
 }
 
-export type Ongedaanuitkomst = 'teruggezet' | 'nietBevestigd' | 'nietInWachtrij'
+export type Ongedaanuitkomst = 'teruggezet' | 'nietBevestigd' | 'nietInWachtrij' | 'vanEenAnder'
 
 /**
  * De lokale kopie en de wachtrij, clientzijdig. Zie spec §4–§6.
@@ -219,9 +219,10 @@ export function useOfflineVoorraad() {
   /**
    * Ongedaan maken van een afstreping uit de wachtrij (spec termijn §6, spec
    * twee-tabbladen §3). 'nietInWachtrij': ze is intussen verstuurd; de
-   * aanroeper beslist wat dan. Was ze onzeker, dan ook heropenen op de
-   * server: reopen() filtert op status 'closed', dus had de server haar niet,
-   * dan raakt het niets.
+   * aanroeper beslist wat dan. Was ze onzeker, dan ook heropenen op de server.
+   * reopen() raakt alleen je eigen afstreping (spec eigen-afstreping §3): had de
+   * server haar niet, dan raakt het niets; is het item intussen van een ander,
+   * dan 'vanEenAnder'.
    */
   async function ongedaanMakenInWachtrij(item: VoorraadItem): Promise<Ongedaanuitkomst> {
     // Binnen het slot, en alleen synchroon werk: een verzending in dit of een
@@ -235,11 +236,14 @@ export function useOfflineVoorraad() {
     if (stand === 'weg') return 'nietInWachtrij'
     if (stand === 'zeker') return 'teruggezet'
     try {
-      await reopen(item.id)
-      return 'teruggezet'
+      if ((await reopen(item.id)) !== 'vanEenAnder') return 'teruggezet'
     } catch {
       return 'nietBevestigd'
     }
+    // Van een ander: haalUitWachtrij zette het item terug in de kopie, maar het
+    // blijft gesloten (spec eigen-afstreping §4).
+    streepAfInDeKopie(item.id)
+    return 'vanEenAnder'
   }
 
   return {

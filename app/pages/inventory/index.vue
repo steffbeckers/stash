@@ -108,6 +108,11 @@ async function ongedaanMakenOffline(item: VoorraadItem): Promise<void> {
     await ongedaanMaken(item.id, item)
     return
   }
+  // Van een ander: niet terug in de lijst (spec eigen-afstreping §4).
+  if (uitkomst === 'vanEenAnder') {
+    toast.add({ title: t('inventory.undoByOther'), color: 'warning' })
+    return
+  }
   // Eerst filteren: een verversing tijdens het heropenen (tot de termijn) kan
   // het item al teruggezet hebben, en dan stond het er twee keer.
   items.value = [...items.value.filter((i) => i.id !== item.id), item]

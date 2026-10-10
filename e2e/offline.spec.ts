@@ -116,6 +116,13 @@ async function eersteWachtrijItem(page: Page): Promise<string> {
   return page.evaluate((s) => JSON.parse(localStorage.getItem(s) ?? '[]')[0].itemId, WACHTRIJ_SLEUTEL)
 }
 
+async function idsInKopie(page: Page): Promise<string[]> {
+  return page.evaluate(
+    (s) => (JSON.parse(localStorage.getItem(s) ?? 'null')?.items ?? []).map((i: { id: string }) => i.id),
+    KOPIE_SLEUTEL,
+  )
+}
+
 /**
  * Zet een afstreping van het item met deze naam in de wachtrij, zoals de
  * pagina dat offline doet. Zonder eigenaar: die van de kopie, dus deze gebruiker.
@@ -442,6 +449,82 @@ test('ongedaan maken na een vervallen verzending heropent de afstreping van een 
   await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toBeVisible()
   await page.reload()
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+})
+
+/** Houdt de eerste PATCH vast zonder hem door te laten: alleen de termijn breekt hem af. Elke volgende gaat door. */
+async function houdEersteAfstrepingTegen(page: Page) {
+  const { vrij, vrijgeven } = slot()
+  let pogingen = 0
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
+    pogingen++
+    if (pogingen > 1) return route.fallback()
+    await vrij
+    await route.abort().catch(() => {})
+  })
+  return { vrijgeven }
+}
+
+test('een onzekere afstreping die een huisgenoot intussen afstreepte, komt bij ongedaan maken niet terug', async ({ page }) => {
+  const naam = `Onzekerander${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-onzeker', 'Olaf', [{ naam, aantal: 2 }])
+  const tegen = await houdEersteAfstrepingTegen(page)
+
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+  const itemId = await eersteWachtrijItem(page)
+  await streepAfAlsHuisgenoot(itemId)
+
+  await ongedaan.click()
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(await idsInKopie(page)).not.toContain(itemId)
+  expect(await wachtrijWaarde(page)).toBeNull()
+  tegen.vrijgeven()
+})
+
+test('een onzekere afstreping die nooit aankwam, komt bij ongedaan maken gewoon terug', async ({ page }) => {
+  const naam = `Nooitaan${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-nooit', 'Nora', [{ naam, aantal: 2 }])
+  const tegen = await houdEersteAfstrepingTegen(page)
+
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toHaveCount(0)
+  tegen.vrijgeven()
+
+  await page.reload()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+})
+
+test('ongedaan maken op de offline-pagina meldt een afstreping van een huisgenoot', async ({ page }) => {
+  const naam = `Kelderander${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-offlinepagina', 'Otto', [{ naam, aantal: 2 }])
+
+  await page.goto(routePath('offline', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await streepAf(page, naam)
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+
+  // Het online-event laat de plugin versturen; de PATCH bereikt de server
+  // nooit en stuit op de termijn, dus de afstreping is onzeker.
+  const tegen = await houdEersteAfstrepingTegen(page)
+  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await verzonden
+  await streepAfAlsHuisgenoot(await eersteWachtrijItem(page))
+
+  // Ongedaan maken wacht op het slot, dus op het einde van de verzending.
+  await ongedaan.click()
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  tegen.vrijgeven()
 })
 
 /**
