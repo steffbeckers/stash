@@ -2,9 +2,12 @@
 import {
   GEWICHTSEENHEDEN,
   MAX_AANTAL,
+  idsVoorPoging,
   lokaleDatum,
+  toevoegsleutel,
   type Bewaarplaats,
   type GekozenProduct,
+  type Poging,
   type VoorraadEenheid,
 } from '~/utils/voorraad'
 
@@ -19,6 +22,11 @@ const ready = ref(false)
 const failed = ref(false)
 const bezig = ref(false)
 const error = ref('')
+
+// De id's van de laatste poging: een nieuwe poging met dezelfde gegevens
+// hergebruikt ze, zodat een afgebroken toevoeging geen dubbel maakt (spec
+// geen-dubbele-toevoeging §3–§4).
+let poging: Poging | null = null
 
 const product = ref<GekozenProduct | null>(null)
 const plaatsen = ref<Bewaarplaats[]>([])
@@ -80,15 +88,24 @@ async function bewaar() {
   bezig.value = true
   error.value = ''
   try {
-    await add({
-      householdId: activeId.value,
+    const gegevens = {
       productId: product.value.productId,
       storagePlaceId: plaats.value,
       aantal: n,
       amount,
       unit,
-      acquiredAt: lokaleDatum(new Date()),
       expiresAt: vervaldatum.value || null,
+    }
+    poging = idsVoorPoging(poging, toevoegsleutel(gegevens), n, () => crypto.randomUUID())
+    await add({
+      householdId: activeId.value,
+      productId: gegevens.productId,
+      storagePlaceId: gegevens.storagePlaceId,
+      ids: poging.ids,
+      amount,
+      unit,
+      acquiredAt: lokaleDatum(new Date()),
+      expiresAt: gegevens.expiresAt,
     })
     toast.add({ title: t('inventory.added', { count: n, name: product.value.naam }), color: 'success' })
     await navigateTo(localePath('inventory'))

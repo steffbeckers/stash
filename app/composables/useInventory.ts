@@ -1,10 +1,12 @@
 import type { Bewaarplaats, Reden, VoorraadEenheid, VoorraadItem } from '~/utils/voorraad'
+import { isAlToegevoegd } from '~/utils/voorraad'
 
 export interface Toevoeging {
   householdId: string
   productId: string
   storagePlaceId: string
-  aantal: number
+  /** Eén per item; een nieuwe poging met dezelfde id's maakt geen dubbel (spec geen-dubbele-toevoeging §4). */
+  ids: string[]
   amount: number
   unit: VoorraadEenheid
   acquiredAt: string
@@ -79,7 +81,8 @@ export function useInventory() {
   }
 
   async function add(t: Toevoeging): Promise<void> {
-    const rijen = Array.from({ length: t.aantal }, () => ({
+    const rijen = t.ids.map((id) => ({
+      id,
       household_id: t.householdId,
       product_id: t.productId,
       storage_place_id: t.storagePlaceId,
@@ -88,9 +91,11 @@ export function useInventory() {
       acquired_at: t.acquiredAt,
       expires_at: t.expiresAt,
     }))
-    // Eén insert met N rijen is één statement: alles of niets.
+    // Eén insert met N rijen is één statement: alles of niets. Botst ze op de
+    // primaire sleutel, dan kwam een eerdere poging met dezelfde id's al
+    // helemaal aan (spec geen-dubbele-toevoeging §4).
     const { error } = await supabase.from('inventory_item').insert(rijen)
-    if (error) throw error
+    if (error && !isAlToegevoegd(error)) throw error
   }
 
   /**
