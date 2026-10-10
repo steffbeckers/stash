@@ -51,6 +51,7 @@ async function maakOngedaan(item: VoorraadItem) {
   // heropenen vraagt de server, die hier misschien niet bereikbaar is.
   if (uitkomst === 'nietInWachtrij') toast.add({ title: t('offlineVoorraad.alreadySent'), color: 'error' })
   if (uitkomst === 'nietBevestigd') toast.add({ title: t('offlineVoorraad.undoUnconfirmed'), color: 'warning' })
+  if (uitkomst === 'vanEenAnder') toast.add({ title: t('inventory.undoByOther'), color: 'warning' })
   emit('gewijzigd')
   telWachtend()
 }

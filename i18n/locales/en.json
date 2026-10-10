@@ -72,6 +72,7 @@
     "undo": "Undo",
     "alreadyClosed": "Someone else already checked this off.",
     "cannotUndo": "This can no longer be undone: its storage place was deleted.",
+    "undoByOther": "Not undone: someone else checked off or deleted this item in the meantime.",
     "edit": "Edit",
     "delete": "Delete",
     "deleteTitle": "Delete this item?",

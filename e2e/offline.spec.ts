@@ -3,6 +3,7 @@ import { routePath } from '../routes.config'
 import { signIn, createHousehold, bundles, waitForHydration, openUserMenu } from './helpers'
 import { KOPIE_SLEUTEL, WACHTRIJ_SLEUTEL } from '../app/utils/offlineVoorraad'
 import { SUPABASE_TERMIJN_MS } from '../app/utils/termijn'
+import { actAs, createUser, withDb, withTx } from '../test/db/helpers'
 
 const en = bundles.en
 
@@ -94,6 +95,51 @@ async function houdEersteAfstrepingVast(page: Page, opties: { daarnaAfbreken?: b
     await route.fulfill({ response: antwoord }).catch(() => {})
   })
   return { vrijgeven, pogingen: () => pogingen }
+}
+
+/**
+ * Een huisgenoot streept dit item af, rechtstreeks in de lokale database: een
+ * echte tweede gebruiker, en de trigger zet closed_by op hem. Als superuser
+ * omzeilt deze verbinding RLS, dus lid hoeft hij niet te zijn: het gaat om wie
+ * afstreepte. Spec eigen-afstreping §5.
+ */
+async function streepAfAlsHuisgenoot(itemId: string): Promise<void> {
+  // Een uuid, geen tijdstip: auth.users.email is uniek, en twee workers kunnen
+  // in dezelfde milliseconde een huisgenoot maken.
+  const huisgenoot = await createUser(`huisgenoot-${crypto.randomUUID()}@example.com`)
+  await withTx(async (tx) => {
+    await actAs(tx, huisgenoot)
+    // Alleen een item in voorraad: was het al gesloten (bv. omdat mijn eigen
+    // afstreping toch aankwam), dan zegt de fout dat, niet een rare assertie later.
+    const rijen = await tx`
+      update inventory_item set status = 'closed', closed_reason = 'consumed'
+      where id = ${itemId} and status = 'in_stock' returning id
+    `
+    if (rijen.length !== 1) throw new Error('Huisgenoot kon niet afstrepen: het item was al gesloten')
+  })
+}
+
+/**
+ * Een huisgenoot verwijdert dit item, rechtstreeks in de lokale database. Als
+ * superuser, zoals hierboven: het gaat erom dat het item weg is.
+ */
+async function verwijderAlsHuisgenoot(itemId: string): Promise<void> {
+  await withDb(async (sql) => {
+    const rijen = await sql`delete from inventory_item where id = ${itemId} returning id`
+    if (rijen.length !== 1) throw new Error('Huisgenoot kon niet verwijderen: het item bestond niet')
+  })
+}
+
+/** Het item van de eerste afstreping in de wachtrij: dat item moet de huisgenoot raken. */
+async function eersteWachtrijItem(page: Page): Promise<string> {
+  return page.evaluate((s) => JSON.parse(localStorage.getItem(s) ?? '[]')[0].itemId, WACHTRIJ_SLEUTEL)
+}
+
+async function idsInKopie(page: Page): Promise<string[]> {
+  return page.evaluate(
+    (s) => (JSON.parse(localStorage.getItem(s) ?? 'null')?.items ?? []).map((i: { id: string }) => i.id),
+    KOPIE_SLEUTEL,
+  )
 }
 
 /**
@@ -379,7 +425,8 @@ test('ongedaan maken van een afstreping die de wachtrij onzeker verstuurde, hero
 
   vast.vrijgeven()
   await page.reload()
-  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  // Onder belasting duurt de eerste lijst na een herlaad soms langer dan 5 s; een gedragsfout toont een verkeerd aantal, geen ontbrekende rij.
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2', { timeout: 15_000 })
 })
 
 test('faalt ook het heropenen, dan zegt ongedaan maken dat het niet bevestigd is', async ({ page }) => {
@@ -396,6 +443,159 @@ test('faalt ook het heropenen, dan zegt ongedaan maken dat het niet bevestigd is
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   expect(await wachtrijWaarde(page)).toBeNull()
   vast.vrijgeven()
+})
+
+test('ongedaan maken na een vervallen verzending heropent de afstreping van een huisgenoot niet', async ({ page, context }) => {
+  const naam = `Vervallen${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-vervallen', 'Vera', [{ naam, aantal: 2 }])
+
+  await context.setOffline(true)
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  // De muis op de toast pauzeert zijn timer.
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+
+  // Intussen streept een huisgenoot hetzelfde item af.
+  await streepAfAlsHuisgenoot(await eersteWachtrijItem(page))
+
+  // Online: mijn verzending raakt niets en vervalt.
+  await context.setOffline(false)
+  await page.waitForFunction((s) => localStorage.getItem(s) === null, WACHTRIJ_SLEUTEL)
+
+  // Niet meer in de wachtrij, dus een gewone heropening, en die mag de
+  // afstreping van de huisgenoot niet raken.
+  await ongedaan.click()
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toBeVisible()
+  await page.reload()
+  // Onder belasting duurt de eerste lijst na een herlaad soms langer dan 5 s; een gedragsfout toont een verkeerd aantal, geen ontbrekende rij.
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1', { timeout: 15_000 })
+})
+
+/** Houdt de eerste PATCH vast zonder hem door te laten: alleen de termijn breekt hem af. Elke volgende gaat door. */
+async function houdEersteAfstrepingTegen(page: Page) {
+  const { vrij, vrijgeven } = slot()
+  let pogingen = 0
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
+    pogingen++
+    if (pogingen > 1) return route.fallback()
+    await vrij
+    await route.abort().catch(() => {})
+  })
+  return { vrijgeven }
+}
+
+test('een onzekere afstreping die een huisgenoot intussen afstreepte, komt bij ongedaan maken niet terug', async ({ page }) => {
+  const naam = `Onzekerander${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-onzeker', 'Olaf', [{ naam, aantal: 2 }])
+  const tegen = await houdEersteAfstrepingTegen(page)
+
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+  const itemId = await eersteWachtrijItem(page)
+  await streepAfAlsHuisgenoot(itemId)
+
+  await ongedaan.click()
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(await idsInKopie(page)).not.toContain(itemId)
+  expect(await wachtrijWaarde(page)).toBeNull()
+  tegen.vrijgeven()
+})
+
+test('faalt het nalezen na een onzekere afstreping, dan zegt ongedaan maken dat het niet bevestigd is', async ({ page }) => {
+  const naam = `Naleesfout${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-naleesfout', 'Nina', [{ naam, aantal: 2 }])
+  const tegen = await houdEersteAfstrepingTegen(page)
+
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+  await streepAfAlsHuisgenoot(await eersteWachtrijItem(page))
+
+  // Het nalezen van reopen() (select=status) bereikt de server nooit. Elke
+  // poging: postgrest-js herhaalt een GET na een netwerkfout. Deze route staat
+  // na die van houdEersteAfstrepingTegen en krijgt dus elk verzoek eerst; de
+  // rest geeft ze door.
+  await page.route('**/rest/v1/inventory_item*', async (route) => {
+    const verzoek = route.request()
+    if (verzoek.method() === 'GET' && verzoek.url().includes('select=status')) return route.abort()
+    return route.fallback()
+  })
+
+  // De waarheid is onbekend: niet 'iemand anders', maar niet bevestigd. Ruim
+  // boven de 5 s: postgrest-js wacht 1, 2 en 4 s tussen zijn pogingen.
+  await ongedaan.click()
+  await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toHaveCount(0)
+  tegen.vrijgeven()
+})
+
+test('een onzekere afstreping van een item dat een huisgenoot intussen verwijderde, komt bij ongedaan maken niet terug', async ({ page }) => {
+  const naam = `Verwijderd${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-verwijderd', 'Vince', [{ naam, aantal: 2 }])
+  const tegen = await houdEersteAfstrepingTegen(page)
+
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+  const itemId = await eersteWachtrijItem(page)
+  await verwijderAlsHuisgenoot(itemId)
+
+  // Het nalezen vindt geen rij: dat is 'vanEenAnder', niet 'nietGesloten'.
+  await ongedaan.click()
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toBeVisible()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  expect(await idsInKopie(page)).not.toContain(itemId)
+  tegen.vrijgeven()
+})
+
+test('een onzekere afstreping die nooit aankwam, komt bij ongedaan maken gewoon terug', async ({ page }) => {
+  const naam = `Nooitaan${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-nooit', 'Nora', [{ naam, aantal: 2 }])
+  const tegen = await houdEersteAfstrepingTegen(page)
+
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await page.getByRole('button', { name: en.inventory.undo }).click()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toHaveCount(0)
+  tegen.vrijgeven()
+
+  await page.reload()
+  // Onder belasting duurt de eerste lijst na een herlaad soms langer dan 5 s; een gedragsfout toont een verkeerd aantal, geen ontbrekende rij.
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2', { timeout: 15_000 })
+})
+
+test('ongedaan maken op de offline-pagina meldt een afstreping van een huisgenoot', async ({ page }) => {
+  const naam = `Kelderander${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-offlinepagina', 'Otto', [{ naam, aantal: 2 }])
+
+  await page.goto(routePath('offline', 'en'))
+  await expect(groep(page, 'Pantry', naam)).toContainText('×2')
+  await streepAf(page, naam)
+  await expect(page.getByText(tekst(en.offlineVoorraad.pending, { count: 1 }))).toBeVisible()
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+
+  // Het online-event laat de plugin versturen; de PATCH bereikt de server
+  // nooit en stuit op de termijn, dus de afstreping is onzeker.
+  const tegen = await houdEersteAfstrepingTegen(page)
+  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await verzonden
+  await streepAfAlsHuisgenoot(await eersteWachtrijItem(page))
+
+  // Ongedaan maken wacht op het slot, dus op het einde van de verzending.
+  await ongedaan.click()
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
+  tegen.vrijgeven()
 })
 
 /**

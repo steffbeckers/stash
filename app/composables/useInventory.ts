@@ -18,6 +18,9 @@ export interface Itemwijziging {
   unit: VoorraadEenheid
 }
 
+/** Wat reopen() deed. Spec docs/superpowers/specs/2026-10-10-eigen-afstreping-design.md §3. */
+export type Heropening = 'heropend' | 'nietGesloten' | 'vanEenAnder'
+
 /**
  * De voorraad, clientzijdig.
  *
@@ -30,6 +33,7 @@ export interface Itemwijziging {
  */
 export function useInventory() {
   const supabase = useSupabaseClient()
+  const user = useSupabaseUser()
   // useNuxtApp().$i18n en niet useI18n(): deze composable draait ook in de
   // client-plugin wachtrij.client.ts (via useOfflineVoorraad), en useI18n()
   // hoort bovenaan een setup-functie.
@@ -106,19 +110,35 @@ export function useInventory() {
   }
 
   /**
-   * Ongedaan maken. De trigger wist closed_at, closed_by en closed_reason.
-   * Is de plaats intussen weg, dan gooit dit de samenhangfout — herken die
-   * met isSamenhangFout().
+   * Ongedaan maken, alleen van je eigen afstreping (spec eigen-afstreping §3).
+   * De trigger wist closed_at, closed_by en closed_reason. Is de plaats
+   * intussen weg, dan gooit dit de samenhangfout — herken die met
+   * isSamenhangFout().
+   *
+   * Raakt de update niets, dan leest dit het item na. In voorraad is
+   * 'nietGesloten': mijn afstreping kwam nooit aan, of iemand zette het al
+   * terug. Gesloten door iemand anders (ook een verwijderd account) of
+   * verwijderd is 'vanEenAnder'.
    */
-  async function reopen(id: string): Promise<boolean> {
+  async function reopen(id: string): Promise<Heropening> {
+    const ik = user.value?.sub
+    if (!ik) throw new Error('Geen ingelogde gebruiker')
     const { data, error } = await supabase
       .from('inventory_item')
       .update({ status: 'in_stock' })
       .eq('id', id)
       .eq('status', 'closed')
+      .eq('closed_by', ik)
       .select('id')
     if (error) throw error
-    return (data ?? []).length === 1
+    if ((data ?? []).length === 1) return 'heropend'
+    const { data: nu, error: leesfout } = await supabase
+      .from('inventory_item')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle()
+    if (leesfout) throw leesfout
+    return nu?.status === 'in_stock' ? 'nietGesloten' : 'vanEenAnder'
   }
 
   async function update(id: string, w: Itemwijziging): Promise<void> {

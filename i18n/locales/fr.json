@@ -72,6 +72,7 @@
     "undo": "Remettre en stock",
     "alreadyClosed": "Quelqu'un d'autre l'a déjà retiré.",
     "cannotUndo": "Impossible d'annuler : le lieu de rangement a été supprimé.",
+    "undoByOther": "Pas remis en stock : quelqu'un d'autre a retiré ou supprimé cet article entre-temps.",
     "edit": "Modifier",
     "delete": "Supprimer",
     "deleteTitle": "Supprimer cet article ?",
