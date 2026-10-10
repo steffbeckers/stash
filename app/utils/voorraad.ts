@@ -240,3 +240,46 @@ export function isSamenhangFout(oorzaak: unknown): boolean {
   const { code, message } = oorzaak as { code?: unknown; message?: unknown }
   return code === '23514' && typeof message === 'string' && message.includes('inventory_item_samenhang')
 }
+
+/**
+ * Kwam een eerdere poging met dezelfde id's al aan? Dan botst deze insert op
+ * de primaire sleutel (spec geen-dubbele-toevoeging §4). Code én
+ * constraintnaam, zoals isSamenhangFout: 23505 alleen is élke unieke botsing.
+ */
+export function isAlToegevoegd(oorzaak: unknown): boolean {
+  if (typeof oorzaak !== 'object' || oorzaak === null) return false
+  const { code, message } = oorzaak as { code?: unknown; message?: unknown }
+  return code === '23505' && typeof message === 'string' && message.includes('inventory_item_pkey')
+}
+
+/** Een toevoeging en haar id's (spec geen-dubbele-toevoeging §3). */
+export interface Poging {
+  sleutel: string
+  ids: string[]
+}
+
+/**
+ * Dezelfde gegevens geven dezelfde id's: een nieuwe poging na een afgebroken
+ * verzoek botst dan op de primaire sleutel in plaats van een dubbel te maken.
+ * Andere gegevens, of een ander aantal, zijn een andere toevoeging.
+ */
+export function idsVoorPoging(vorige: Poging | null, sleutel: string, aantal: number, nieuwId: () => string): Poging {
+  if (vorige && vorige.sleutel === sleutel && vorige.ids.length === aantal) return vorige
+  return { sleutel, ids: Array.from({ length: aantal }, () => nieuwId()) }
+}
+
+/**
+ * De sleutel van een voorraadtoevoeging: alleen wat de gebruiker invulde.
+ * acquiredAt hoort er niet in: dat is vandaag, en een nieuwe poging na
+ * middernacht blijft dezelfde toevoeging.
+ */
+export function toevoegsleutel(g: {
+  productId: string
+  storagePlaceId: string
+  aantal: number
+  amount: number
+  unit: string
+  expiresAt: string | null
+}): string {
+  return JSON.stringify([g.productId, g.storagePlaceId, g.aantal, g.amount, g.unit, g.expiresAt])
+}

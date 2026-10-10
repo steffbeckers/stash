@@ -228,7 +228,7 @@ describe('rechten', () => {
   // eerste vijf zijn taak 2's schrijffuncties; search_products is taak 3's
   // leesfunctie — anon mag geen van beide aanroepen.
   const productFunctions = [
-    'create_product(text, text, numeric, text, text, text)',
+    'create_product(text, text, numeric, text, text, text, uuid)',
     'update_product(uuid, text, text, numeric, text)',
     'set_product_translation(uuid, text, text)',
     'remove_product_translation(uuid, text)',

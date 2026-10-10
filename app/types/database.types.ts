@@ -185,7 +185,7 @@ isOneToOne: false
 { Args: { "target": string,"uses": number,"valid_days": number }; Returns: string
                            },
 "create_product":
-{ Args: { "brand": string,"gtin": string,"locale": string,"name": string,"net_content": number,"unit": string }; Returns: string
+{ Args: { "brand": string,"gtin": string,"locale": string,"name": string,"net_content": number,"nieuw_id"?: string,"unit": string }; Returns: string
                            },
 "is_household_member":
 { Args: { "target": string }; Returns: boolean

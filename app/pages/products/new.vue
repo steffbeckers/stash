@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { idsVoorPoging, type Poging } from '~/utils/voorraad'
+
 const { t, locale } = useI18n()
 const route = useRoute()
 const localePath = useLocalePath()
@@ -48,6 +50,10 @@ const gtinWaarschuwing = computed(() => {
   return controlecijferKlopt(code) ? '' : t('products.gtinCheckDigit')
 })
 
+// Het id van de laatste poging: een nieuwe poging met dezelfde gegevens
+// hergebruikt het (spec geen-dubbele-toevoeging §5).
+let poging: Poging | null = null
+
 async function bewaar() {
   // Vóór bezig/error: content en unit gaan samen (check-constraint
   // product_inhoud_en_eenheid). Zonder deze voorcontrole kon "alleen
@@ -62,14 +68,16 @@ async function bewaar() {
   bezig.value = true
   error.value = ''
   try {
-    const id = await create({
+    const invoer = {
       gtin: gtin.value.trim() || null,
       brand: merk.value.trim() || null,
       netContent: paar.netContent,
       unit: paar.unit,
       locale: locale.value,
       name: naam.value.trim(),
-    })
+    }
+    poging = idsVoorPoging(poging, JSON.stringify(invoer), 1, () => crypto.randomUUID())
+    const id = await create(invoer, poging.ids[0])
     await navigateTo(localePath({ name: 'products-id', params: { id } }))
   } catch {
     error.value = t('householdSettings.error')
