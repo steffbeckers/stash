@@ -5,10 +5,13 @@ import {
   groepeerPerPlaats,
   groepeerStrook,
   groepslabel,
+  idsVoorPoging,
+  isAlToegevoegd,
   isSamenhangFout,
   isVervallen,
   lokaleDatum,
   plusDagen,
+  toevoegsleutel,
   varianten,
   vervaltBinnenkort,
   type VoorraadItem,
@@ -248,5 +251,87 @@ describe('isSamenhangFout', () => {
   it('herkent iets dat geen databasefout is niet', () => {
     expect(isSamenhangFout(new Error('netwerk'))).toBe(false)
     expect(isSamenhangFout(null)).toBe(false)
+  })
+})
+
+describe('isAlToegevoegd', () => {
+  // Spec geen-dubbele-toevoeging §4: een eerdere poging met dezelfde id's kwam
+  // al aan, en deze insert botst op de primaire sleutel.
+  it('herkent een botsing op de primaire sleutel van inventory_item', () => {
+    expect(isAlToegevoegd({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "inventory_item_pkey"',
+    })).toBe(true)
+  })
+
+  // Dezelfde code op een andere constraint is geen eerdere poging van ons.
+  it('herkent een botsing op een andere constraint niet', () => {
+    expect(isAlToegevoegd({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "iets_anders_key"',
+    })).toBe(false)
+  })
+
+  it('herkent een andere code of iets dat geen databasefout is niet', () => {
+    expect(isAlToegevoegd({ code: '23514', message: 'inventory_item_pkey' })).toBe(false)
+    expect(isAlToegevoegd(new Error('netwerk'))).toBe(false)
+    expect(isAlToegevoegd(null)).toBe(false)
+  })
+})
+
+describe('idsVoorPoging', () => {
+  let teller = 0
+  const nieuwId = () => `id-${++teller}`
+
+  it("maakt bij een eerste poging zoveel id's als gevraagd", () => {
+    const p = idsVoorPoging(null, 'a', 3, nieuwId)
+    expect(p.sleutel).toBe('a')
+    expect(p.ids).toHaveLength(3)
+    expect(new Set(p.ids).size).toBe(3)
+  })
+
+  // Spec §3: dezelfde gegevens geven dezelfde id's, dus geen dubbel.
+  it("geeft bij dezelfde sleutel en hetzelfde aantal de vorige id's terug", () => {
+    const vorige = idsVoorPoging(null, 'a', 2, nieuwId)
+    expect(idsVoorPoging(vorige, 'a', 2, nieuwId)).toBe(vorige)
+  })
+
+  it("maakt nieuwe id's bij een andere sleutel", () => {
+    const vorige = idsVoorPoging(null, 'a', 2, nieuwId)
+    const nieuw = idsVoorPoging(vorige, 'b', 2, nieuwId)
+    expect(nieuw.sleutel).toBe('b')
+    expect(nieuw.ids.some((id) => vorige.ids.includes(id))).toBe(false)
+  })
+
+  // Review Focus: een ander aantal is een andere toevoeging.
+  it("maakt nieuwe id's bij een ander aantal", () => {
+    const vorige = idsVoorPoging(null, 'a', 2, nieuwId)
+    const nieuw = idsVoorPoging(vorige, 'a', 3, nieuwId)
+    expect(nieuw.ids).toHaveLength(3)
+    expect(nieuw.ids.some((id) => vorige.ids.includes(id))).toBe(false)
+  })
+})
+
+describe('toevoegsleutel', () => {
+  const basis = { productId: 'p', storagePlaceId: 'kast', aantal: 2, amount: 1, unit: 'stuk', expiresAt: '2026-10-20' }
+
+  // Review Focus: een nieuwe poging na middernacht. acquiredAt is vandaag en
+  // hoort dus niet in de sleutel; het zit ook niet in het argumenttype.
+  it('hangt alleen af van de ingevulde gegevens', () => {
+    expect(toevoegsleutel({ ...basis })).toBe(toevoegsleutel({ ...basis }))
+  })
+
+  it('verandert als een ingevuld veld verandert', () => {
+    const s = toevoegsleutel(basis)
+    expect(toevoegsleutel({ ...basis, aantal: 3 })).not.toBe(s)
+    expect(toevoegsleutel({ ...basis, expiresAt: null })).not.toBe(s)
+    expect(toevoegsleutel({ ...basis, storagePlaceId: 'koelkast' })).not.toBe(s)
+    expect(toevoegsleutel({ ...basis, amount: 0.5, unit: 'kg' })).not.toBe(s)
+  })
+
+  it('negeert extra velden zoals acquiredAt', () => {
+    const met = { ...basis, acquiredAt: '2026-10-10' } as typeof basis
+    const later = { ...basis, acquiredAt: '2026-10-11' } as typeof basis
+    expect(toevoegsleutel(met)).toBe(toevoegsleutel(later))
   })
 })
