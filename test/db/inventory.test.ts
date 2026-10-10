@@ -355,6 +355,62 @@ describe('inventory_item: rechten', () => {
     })
   })
 
+  // Spec geen-dubbele-toevoeging §4: de client kiest het id, zodat een nieuwe
+  // poging op de primaire sleutel botst in plaats van een dubbel te maken.
+  it('een lid mag een item toevoegen met een gekozen id', async () => {
+    const eigenaar = await createUser('kiest-id@example.com')
+    const gekozen = '00000000-0000-4000-8000-000000000001'
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      await tx`
+        insert into inventory_item (id, household_id, product_id, storage_place_id)
+        values (${gekozen}, ${hh.id}, ${p}, ${hh.plaats('pantry')})
+      `
+      await tx`reset role`
+      const rijen = await tx<{ id: string }[]>`select id from inventory_item`
+      expect(rijen.map((r) => r.id)).toEqual([gekozen])
+    })
+  })
+
+  it('een tweede insert met hetzelfde id botst op de primaire sleutel en maakt geen dubbel', async () => {
+    const eigenaar = await createUser('dubbel-id@example.com')
+    const gekozen = '00000000-0000-4000-8000-000000000002'
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      await actAs(tx, eigenaar)
+      await enableRls(tx)
+      const invoegen = (sql: Sql) => sql`
+        insert into inventory_item (id, household_id, product_id, storage_place_id)
+        values (${gekozen}, ${hh.id}, ${p}, ${hh.plaats('pantry')})
+      `
+      await invoegen(tx)
+      await expect(tx.savepoint((sp) => invoegen(sp as unknown as Sql))).rejects.toThrow(/inventory_item_pkey/)
+      await tx`reset role`
+      expect((await tx`select 1 from inventory_item`).length).toBe(1)
+    })
+  })
+
+  it('een buitenstaander kan ook met een gekozen id niets toevoegen', async () => {
+    const eigenaar = await createUser('eigenaar-gekozen@example.com')
+    const vreemde = await createUser('vreemde-gekozen@example.com')
+    await withTx(async (tx) => {
+      const hh = await maakHuishouden(tx, eigenaar)
+      const p = await maakProduct(tx)
+      await actAs(tx, vreemde)
+      await enableRls(tx)
+      await expect(
+        tx.savepoint((sp) => (sp as unknown as Sql)`
+          insert into inventory_item (id, household_id, product_id, storage_place_id)
+          values ('00000000-0000-4000-8000-000000000003', ${hh.id}, ${p}, ${hh.plaats('pantry')})
+        `),
+      ).rejects.toThrow(/row-level security/)
+    })
+  })
+
   it('een lid mag zijn voorraad wijzigen', async () => {
     const eigenaar = await createUser('wijzigt@example.com')
     await withTx(async (tx) => {

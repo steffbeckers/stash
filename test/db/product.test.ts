@@ -465,3 +465,70 @@ describe('product-RPCs', () => {
     })
   })
 })
+
+describe('create_product met een gekozen id', () => {
+  beforeEach(resetDb)
+  const gekozen = '00000000-0000-4000-8000-0000000000aa'
+
+  // Spec geen-dubbele-toevoeging §5: een nieuwe poging van dezelfde maker
+  // krijgt hetzelfde product terug, zonder dubbel en zonder tweede vertaling.
+  it('geeft bij een nieuwe poging van dezelfde maker hetzelfde product terug, zonder dubbel', async () => {
+    const maker = await createUser('maker-gekozen@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, maker)
+      await enableRls(tx)
+      const [a] = await tx<{ id: string }[]>`select create_product(null, null, null, null, 'nl', 'Melk', ${gekozen}) as id`
+      const [b] = await tx<{ id: string }[]>`select create_product(null, null, null, null, 'nl', 'Melk', ${gekozen}) as id`
+      expect(a!.id).toBe(gekozen)
+      expect(b!.id).toBe(gekozen)
+      await tx`reset role`
+      expect((await tx`select 1 from product`).length).toBe(1)
+      expect((await tx`select 1 from product_translation where product_id = ${gekozen}`).length).toBe(1)
+    })
+  })
+
+  // Review Focus: alleen bereikbaar buiten de app, want de app maakt bij
+  // andere gegevens een nieuw id.
+  it('wijzigt bij een nieuwe poging met een andere naam het bestaande product niet', async () => {
+    const maker = await createUser('maker-andere-naam@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, maker)
+      await enableRls(tx)
+      await tx`select create_product(null, null, null, null, 'nl', 'Melk', ${gekozen})`
+      const [b] = await tx<{ id: string }[]>`select create_product(null, null, null, null, 'nl', 'Kaas', ${gekozen}) as id`
+      expect(b!.id).toBe(gekozen)
+      await tx`reset role`
+      const namen = await tx<{ name: string }[]>`select name from product_translation where product_id = ${gekozen}`
+      expect(namen.map((n) => n.name)).toEqual(['Melk'])
+    })
+  })
+
+  it('weigert het id van andermans product, en verandert niets', async () => {
+    const eerste = await createUser('eerste-maker@example.com')
+    const ander = await createUser('andere-maker@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, eerste)
+      await enableRls(tx)
+      await tx`select create_product(null, null, null, null, 'nl', 'Melk', ${gekozen})`
+      await actAs(tx, ander)
+      await expect(
+        tx.savepoint((sp) => (sp as unknown as Sql)`select create_product(null, null, null, null, 'nl', 'Kaas', ${gekozen})`),
+      ).rejects.toThrow(/product bestaat al/)
+      await tx`reset role`
+      const namen = await tx<{ name: string }[]>`select name from product_translation where product_id = ${gekozen}`
+      expect(namen.map((n) => n.name)).toEqual(['Melk'])
+    })
+  })
+
+  it('maakt zonder id een nieuw product, zoals voorheen', async () => {
+    const maker = await createUser('maker-zonder-id@example.com')
+    await withTx(async (tx) => {
+      await actAs(tx, maker)
+      await enableRls(tx)
+      await tx`select create_product(null, null, null, null, 'nl', 'Melk')`
+      await tx`select create_product(null, null, null, null, 'nl', 'Melk')`
+      await tx`reset role`
+      expect((await tx`select 1 from product`).length).toBe(2)
+    })
+  })
+})
