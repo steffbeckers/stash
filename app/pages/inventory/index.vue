@@ -116,11 +116,13 @@ async function ongedaanMakenOffline(item: VoorraadItem): Promise<void> {
 
 async function ongedaanMaken(itemId: string, item: VoorraadItem | undefined): Promise<void> {
   try {
-    // false: iemand anders zette het al terug. Herladen toont dan gewoon de
-    // juiste stand; er is niets te melden.
-    const terug = await reopen(itemId)
+    const uitkomst = await reopen(itemId)
     // Zoals bij afstrepen: de kopie meteen, voor het geval de verversing faalt.
-    if (terug && item) offline.zetTerugInDeKopie(item)
+    if (uitkomst === 'heropend' && item) offline.zetTerugInDeKopie(item)
+    // 'nietGesloten': het stond al in voorraad. Herladen toont de juiste stand.
+    // 'vanEenAnder': iemand anders streepte het intussen af of verwijderde het
+    // (spec eigen-afstreping §4).
+    if (uitkomst === 'vanEenAnder') toast.add({ title: t('inventory.undoByOther'), color: 'warning' })
   } catch (oorzaak) {
     toast.add({
       title: isSamenhangFout(oorzaak) ? t('inventory.cannotUndo') : t('householdSettings.error'),

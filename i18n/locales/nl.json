@@ -72,6 +72,7 @@
     "undo": "Ongedaan maken",
     "alreadyClosed": "Iemand anders streepte dit al af.",
     "cannotUndo": "Dit kan niet meer ongedaan: de bewaarplaats is verwijderd.",
+    "undoByOther": "Niet ongedaan gemaakt: iemand anders heeft dit item intussen afgestreept of verwijderd.",
     "edit": "Bewerken",
     "delete": "Verwijderen",
     "deleteTitle": "Dit item verwijderen?",

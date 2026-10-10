@@ -3,6 +3,7 @@ import { routePath } from '../routes.config'
 import { signIn, createHousehold, bundles, waitForHydration, openUserMenu } from './helpers'
 import { KOPIE_SLEUTEL, WACHTRIJ_SLEUTEL } from '../app/utils/offlineVoorraad'
 import { SUPABASE_TERMIJN_MS } from '../app/utils/termijn'
+import { actAs, createUser, withTx } from '../test/db/helpers'
 
 const en = bundles.en
 
@@ -94,6 +95,25 @@ async function houdEersteAfstrepingVast(page: Page, opties: { daarnaAfbreken?: b
     await route.fulfill({ response: antwoord }).catch(() => {})
   })
   return { vrijgeven, pogingen: () => pogingen }
+}
+
+/**
+ * Een huisgenoot streept dit item af, rechtstreeks in de lokale database: een
+ * echte tweede gebruiker, en de trigger zet closed_by op hem. Als superuser
+ * omzeilt deze verbinding RLS, dus lid hoeft hij niet te zijn: het gaat om wie
+ * afstreepte. Spec eigen-afstreping §5.
+ */
+async function streepAfAlsHuisgenoot(itemId: string): Promise<void> {
+  const huisgenoot = await createUser(`huisgenoot-${Date.now()}@example.com`)
+  await withTx(async (tx) => {
+    await actAs(tx, huisgenoot)
+    await tx`update inventory_item set status = 'closed', closed_reason = 'consumed' where id = ${itemId}`
+  })
+}
+
+/** Het item van de eerste afstreping in de wachtrij: dat item moet de huisgenoot raken. */
+async function eersteWachtrijItem(page: Page): Promise<string> {
+  return page.evaluate((s) => JSON.parse(localStorage.getItem(s) ?? '[]')[0].itemId, WACHTRIJ_SLEUTEL)
 }
 
 /**
@@ -396,6 +416,32 @@ test('faalt ook het heropenen, dan zegt ongedaan maken dat het niet bevestigd is
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   expect(await wachtrijWaarde(page)).toBeNull()
   vast.vrijgeven()
+})
+
+test('ongedaan maken na een vervallen verzending heropent de afstreping van een huisgenoot niet', async ({ page, context }) => {
+  const naam = `Vervallen${Date.now()}`
+  await maakHuishoudenMet(page, 'eigen-vervallen', 'Vera', [{ naam, aantal: 2 }])
+
+  await context.setOffline(true)
+  await streepAf(page, naam)
+  await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible()
+  // De muis op de toast pauzeert zijn timer.
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+
+  // Intussen streept een huisgenoot hetzelfde item af.
+  await streepAfAlsHuisgenoot(await eersteWachtrijItem(page))
+
+  // Online: mijn verzending raakt niets en vervalt.
+  await context.setOffline(false)
+  await page.waitForFunction((s) => localStorage.getItem(s) === null, WACHTRIJ_SLEUTEL)
+
+  // Niet meer in de wachtrij, dus een gewone heropening, en die mag de
+  // afstreping van de huisgenoot niet raken.
+  await ongedaan.click()
+  await expect(page.getByText(en.inventory.undoByOther, { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(groep(page, 'Pantry', naam)).toContainText('×1')
 })
 
 /**
