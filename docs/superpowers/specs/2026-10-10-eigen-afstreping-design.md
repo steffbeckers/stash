@@ -37,7 +37,7 @@ wanneer het item intussen van een ander is.
 |---|---|---|
 | Filteren op `closed_by` in de client | Raakt alle drie de paden die `reopen` aanroepen, zonder migratie. `closed_by` is leesbaar voor `authenticated` (`grant select` op de tabel) en wordt door de trigger gezet, nooit door de client. | Een andere client of een toekomstige knop kan andermans afstreping nog steeds terugzetten. |
 | Niet in de database (trigger of RLS) | Dat blokkeert elke toekomstige functie om andermans afstreping te herstellen. Een item van een verwijderd account (`closed_by` leeg) kon dan door niemand meer heropend worden. | Geen. |
-| Na nul geraakte rijen nalezen | "Nul rijen" betekent twee dingen: het item stond nooit gesloten (mijn afstreping kwam niet aan), of iemand anders sloot het. Het eerste moet terug in de lijst, het tweede niet. | Eén extra leesverzoek, alleen in dat randgeval. Het valt onder de termijn van 10 s. |
+| Na nul geraakte rijen nalezen | "Nul rijen" betekent twee dingen: het item stond nooit gesloten (mijn afstreping kwam niet aan), of iemand anders sloot het. Het eerste moet terug in de lijst, het tweede niet. | Eén extra leesverzoek, alleen in dat randgeval. De update en het nalezen hebben elk hun eigen termijn van 10 s, dus ongedaan maken kan in dit randgeval tot ~20 s duren. |
 | Niet: eerst lezen, dan heropenen | Altijd twee verzoeken, en een groter venster voor een huisgenoot ertussen. | Geen. |
 | Niet: een RPC | De voorraad-spec (`2026-10-01-voorraad-design.md` §3) koos voor rechtstreeks schrijven onder RLS, zonder RPC's. | Geen. |
 | Een verwijderd item telt als "van een ander" | Voor de gebruiker is het hetzelfde: het komt niet terug, en iemand anders deed iets. Eén melding dekt beide. | De melding noemt beide mogelijkheden. |
@@ -120,11 +120,14 @@ blijft 10 s, en er zijn geen vaste pauzes als vervanging voor volgorde.
   `test/db/helpers.ts` een tweede, echte gebruiker aan.
 - Daarna streept hij binnen een transactie, met `actAs(huisgenoot)`, het item
   af: `status = 'closed'` en een reden. De trigger zet `closed_by` dan op die
-  gebruiker.
+  gebruiker. De update raakt alleen een item in voorraad en gooit tenzij er
+  precies één rij terugkomt: was het al gesloten, dan zegt de fout dat.
 - Het item-id komt uit de wachtrij-ingang van mijn eigen afstreping, zodat de
   huisgenoot precies dat item raakt.
-- `DATABASE_URL` staat in de e2e-job van CI en in de lokale `.env`. De helpers
-  weigeren alles behalve een lokale host.
+- `DATABASE_URL` staat in de e2e-job van CI en in de lokale `.env`. Elke
+  databasehelper eist een lokale host, vóór er verbonden wordt: `withDb` en
+  `withTwoConnections` roepen `assertLocalDatabase` aan, dus ook `createUser`
+  en `withTx`. Bewezen in `test/db/reset-db-guard.test.ts`.
 
 ### End-to-end — `e2e/offline.spec.ts`
 
@@ -152,6 +155,20 @@ blijft 10 s, en er zijn geen vaste pauzes als vervanging voor volgorde.
      De huisgenoot streept hetzelfde item af. Ik maak ongedaan.
    - **Verwacht:** de melding `undoByOther`, en het item blijft weg.
    - **Rood** zonder de melding in `OfflineVoorraad.vue`.
+5. **Een fout bij het nalezen.**
+   - Mijn PATCH stuit op de termijn; de huisgenoot streept het item af. Elk
+     nalezen (`GET` met `select=status`) wordt afgebroken, ook de herhalingen
+     van postgrest-js.
+   - **Verwacht:** de melding `undoUnconfirmed`, niet `undoByOther`: de
+     waarheid is onbekend.
+   - **Rood** zonder `if (leesfout) throw leesfout` (dan `nu === null`, dus
+     `'vanEenAnder'`).
+6. **Een verwijderd item.**
+   - Mijn PATCH stuit op de termijn; de huisgenoot verwijdert het item. Ik
+     maak ongedaan.
+   - **Verwacht:** de melding `undoByOther`, het item blijft weg (`×1`), en het
+     staat niet meer in de kopie.
+   - **Rood** wanneer `nu === null` als `'nietGesloten'` behandeld wordt.
 
 **Bestaande tests.** "Een hangende afstreping … heropent haar op de server"
 (mijn afstreping kwam wel aan, dus `'heropend'`) en de gewone online

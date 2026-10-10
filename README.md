@@ -60,7 +60,7 @@ Three separate suites, each with different requirements:
 |---|---|---|
 | `npm test` | Unit tests (Vitest, `test/**` excluding `test/db` and `e2e`) | Nothing extra |
 | `npm run test:db` | Database/RLS tests (`test/db/**`), against a real Postgres connection | Local Supabase running (`npx supabase start`) and `.env` present; run `npx supabase db reset` first to apply migrations cleanly |
-| `npm run test:e2e` | End-to-end tests (Playwright, `e2e/**`) | Local Supabase running, `.env` present, and the dev server (Playwright starts it automatically via `npm run dev`); magic links are read from Mailpit at `http://127.0.0.1:54324` |
+| `npm run test:e2e` | End-to-end tests (Playwright, `e2e/**`) | Local Supabase running, `.env` present with `DATABASE_URL` pointing at the local database (`e2e/offline.spec.ts` loads `test/db/helpers.ts` to act as a second household member, and those helpers refuse any non-local host), and the dev server (Playwright starts it automatically via `npm run dev`); magic links are read from Mailpit at `http://127.0.0.1:54324` |
 
 `npm run test:all` runs the unit and database suites together.
 
