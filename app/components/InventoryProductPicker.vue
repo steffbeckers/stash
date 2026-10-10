@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GekozenProduct } from '~/utils/voorraad'
+import { idsVoorPoging, type GekozenProduct, type Poging } from '~/utils/voorraad'
 
 const gekozen = defineModel<GekozenProduct | null>({ required: true })
 const { t, locale } = useI18n()
@@ -55,6 +55,10 @@ function openAanmaken() {
   aanmaken.value = true
 }
 
+// Het id van de laatste poging: een nieuwe poging met dezelfde gegevens
+// hergebruikt het (spec geen-dubbele-toevoeging §5).
+let poging: Poging | null = null
+
 async function maakAan() {
   if (!naam.value.trim()) return
   const paar = valideerInhoudEenheid(inhoud.value, eenheid.value)
@@ -65,14 +69,16 @@ async function maakAan() {
   maaktAan.value = true
   error.value = ''
   try {
-    const id = await create({
+    const invoer = {
       gtin: null,
       brand: merk.value.trim() || null,
       netContent: paar.netContent,
       unit: paar.unit,
       locale: locale.value,
       name: naam.value.trim(),
-    })
+    }
+    poging = idsVoorPoging(poging, JSON.stringify(invoer), 1, () => crypto.randomUUID())
+    const id = await create(invoer, poging.ids[0])
     gekozen.value = { productId: id, naam: naam.value.trim() }
     aanmaken.value = false
   } catch {

@@ -94,7 +94,11 @@ export function useProducts() {
     }
   }
 
-  async function create(invoer: ProductInvoer & { locale: string, name: string }): Promise<string> {
+  /**
+   * `id`: gekozen door de aanroeper en hergebruikt bij een nieuwe poging, zodat
+   * een afgebroken aanmaak geen dubbel maakt (spec geen-dubbele-toevoeging §5).
+   */
+  async function create(invoer: ProductInvoer & { locale: string, name: string }, id?: string): Promise<string> {
     const { data, error } = await supabase.rpc('create_product', {
       // De gegenereerde Args-types van elke RPC in database.types.ts kennen
       // geen `| null` voor IN-parameters (geverifieerd: geen enkele functie
@@ -110,6 +114,7 @@ export function useProducts() {
       unit: invoer.unit as string,
       locale: invoer.locale,
       name: invoer.name,
+      nieuw_id: id,
     })
     if (error) throw error
     return data as string

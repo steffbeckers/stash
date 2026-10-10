@@ -38,8 +38,6 @@ async function houdEersteAntwoordVast(page: Page, patroon: string, past: (r: Req
 }
 
 /** Hoeveel producten met deze naam er in de catalogus staan, rechtstreeks in de lokale database. */
-// Nog ongebruikt: de volgende taak voegt de test voor create_product toe.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function aantalVertalingen(naam: string): Promise<number> {
   let n = 0
   await withDb(async (sql) => {
@@ -72,5 +70,43 @@ test('opnieuw opslaan na een afgebroken toevoeging maakt geen dubbel', async ({ 
   await expect(page).toHaveURL(routePath('inventory', 'en'))
   const groep = page.getByRole('region', { name: 'Pantry' }).getByRole('listitem').filter({ hasText: naam }).first()
   await expect(groep).toContainText('×2', { timeout: 15_000 })
+  vast.vrijgeven()
+})
+
+test('opnieuw aanmaken na een afgebroken productaanmaak in de productkiezer maakt geen dubbel', async ({ page }) => {
+  const naam = `Kiezerdubbel${Date.now()}`
+  await signIn(page, `dubbel-kiezer-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Kim', huishouden: 'Kiezerhuis' })
+  await page.goto(routePath('inventory', 'en'))
+  await page.getByRole('link', { name: tekst(en.inventory.addTo, { place: 'Pantry' }), exact: true }).click()
+  await waitForHydration(page, 'input')
+  await page.getByLabel(en.inventory.searchProduct).fill(naam)
+  await page.getByRole('button', { name: tekst(en.products.createNamed, { name: naam }) }).click()
+
+  const vast = await houdEersteAntwoordVast(page, '**/rest/v1/rpc/create_product', (r) => r.method() === 'POST')
+  await page.getByRole('button', { name: en.inventory.createProduct }).click()
+  await expect(page.getByText(en.householdSettings.error, { exact: true })).toBeVisible({ timeout: 20_000 })
+
+  await page.getByRole('button', { name: en.inventory.createProduct }).click()
+  await expect(page.getByRole('button', { name: en.inventory.changeProduct })).toBeVisible()
+  expect(await aantalVertalingen(naam)).toBe(1)
+  vast.vrijgeven()
+})
+
+test('opnieuw bewaren na een afgebroken productaanmaak op de pagina nieuw product maakt geen dubbel', async ({ page }) => {
+  const naam = `Paginadubbel${Date.now()}`
+  await signIn(page, `dubbel-pagina-${Date.now()}@example.com`)
+  await createHousehold(page, { voornaam: 'Pim', huishouden: 'Paginahuis' })
+  await page.goto(routePath('products/new', 'en'))
+  await waitForHydration(page, 'input')
+  await page.getByLabel(en.products.name).fill(naam)
+
+  const vast = await houdEersteAntwoordVast(page, '**/rest/v1/rpc/create_product', (r) => r.method() === 'POST')
+  await page.getByRole('button', { name: en.products.save }).click()
+  await expect(page.getByText(en.householdSettings.error, { exact: true })).toBeVisible({ timeout: 20_000 })
+
+  await page.getByRole('button', { name: en.products.save }).click()
+  await expect(page).toHaveURL(/\/products\/[0-9a-f-]{36}/)
+  expect(await aantalVertalingen(naam)).toBe(1)
   vast.vrijgeven()
 })
