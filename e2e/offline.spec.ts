@@ -82,19 +82,27 @@ function slot(): { vrij: Promise<void>; vrijgeven: () => void } {
  * antwoord tegen tot `vrijgeven()`. De pagina breekt het verzoek af op de
  * termijn, terwijl de server de afstreping wel heeft. Elke volgende PATCH gaat
  * gewoon door, of wordt afgebroken met `daarnaAfbreken`.
+ *
+ * `aangekomen` wordt vervuld zodra de server de afstreping verwerkte. De test
+ * wacht daarop vóór hij ongedaan maakt: zonder die zekerheid scheidt alleen de
+ * termijn van 10 s de afstreping van de heropening, en zou een trage
+ * `route.fetch()` de heropening eerst laten aankomen, zodat de test groen wordt
+ * zonder de bewaking.
  */
 async function houdEersteAfstrepingVast(page: Page, opties: { daarnaAfbreken?: boolean } = {}) {
   const { vrij, vrijgeven } = slot()
+  const { vrij: aangekomen, vrijgeven: meldAangekomen } = slot()
   let pogingen = 0
   await page.route('**/rest/v1/inventory_item*', async (route) => {
     if (!isPatch(new URL(route.request().url()), route.request().method())) return route.fallback()
     pogingen++
     if (pogingen > 1) return opties.daarnaAfbreken ? route.abort() : route.fallback()
     const antwoord = await route.fetch()
+    meldAangekomen()
     await vrij
     await route.fulfill({ response: antwoord }).catch(() => {})
   })
-  return { vrijgeven, pogingen: () => pogingen }
+  return { vrijgeven, aangekomen, pogingen: () => pogingen }
 }
 
 /**
@@ -393,7 +401,11 @@ test('een hangende afstreping komt na de termijn in de wachtrij, en ongedaan mak
   expect(vast.pogingen()).toBe(1)
 
   // De server heeft de afstreping wel. Ongedaan maken moet haar daar heropenen.
-  await page.getByRole('button', { name: en.inventory.undo }).click()
+  // De muis op de toast pauzeert zijn timer: hij moet de aankomst overleven.
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+  await vast.aangekomen
+  await ongedaan.click()
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
   expect(await wachtrijWaarde(page)).toBeNull()
 
@@ -414,9 +426,8 @@ test('ongedaan maken van een afstreping die de wachtrij onzeker verstuurde, hero
   await ongedaan.hover()
 
   const vast = await houdEersteAfstrepingVast(page)
-  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
   await context.setOffline(false)
-  await verzonden
+  await vast.aangekomen
 
   // Ongedaan maken wacht op de verzending, die na de termijn onzeker eindigt.
   await ongedaan.click()
@@ -437,7 +448,11 @@ test('faalt ook het heropenen, dan zegt ongedaan maken dat het niet bevestigd is
   await streepAf(page, naam)
   await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
 
-  await page.getByRole('button', { name: en.inventory.undo }).click()
+  // De muis op de toast pauzeert zijn timer: hij moet de aankomst overleven.
+  const ongedaan = page.getByRole('button', { name: en.inventory.undo })
+  await ongedaan.hover()
+  await vast.aangekomen
+  await ongedaan.click()
   await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toBeVisible()
   // Lokaal staat het item terug; de server weet het pas bij de volgende verversing.
   await expect(groep(page, 'Pantry', naam)).toContainText('×2')
@@ -679,7 +694,10 @@ test('een opnieuw afgestreept item erft het onzeker-merk niet', async ({ page, c
   await streepAf(page, naam)
   await expect(page.getByText(en.offlineVoorraad.queued, { exact: true })).toBeVisible({ timeout: 20_000 })
   await expect(groep(page, 'Pantry', naam)).toBeHidden()
-  // Ongedaan maken heropent haar op de server.
+  // Ongedaan maken heropent haar op de server. De muis op de toast pauzeert
+  // zijn timer: hij moet de aankomst overleven.
+  await ongedaan.hover()
+  await vast.aangekomen
   await ongedaan.click()
   await expect(groep(page, 'Pantry', naam)).toContainText('×1')
   await expect(ongedaan).toHaveCount(0)
@@ -967,9 +985,8 @@ test('ongedaan maken op de offline-pagina heropent een onzeker verstuurde afstre
   // Het online-event laat de plugin versturen; de server krijgt de afstreping,
   // de pagina het antwoord niet.
   const vast = await houdEersteAfstrepingVast(page)
-  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await verzonden
+  await vast.aangekomen
 
   await ongedaan.click()
   await expect(groep(page, 'Pantry', naam)).toContainText('×2', { timeout: 20_000 })
@@ -994,9 +1011,8 @@ test('faalt het heropenen op de offline-pagina, dan zegt ongedaan maken dat het 
   // De server krijgt de afstreping, de pagina het antwoord niet; het
   // heropenen daarna wordt afgebroken.
   const vast = await houdEersteAfstrepingVast(page, { daarnaAfbreken: true })
-  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await verzonden
+  await vast.aangekomen
 
   await ongedaan.click()
   await expect(page.getByText(en.offlineVoorraad.undoUnconfirmed, { exact: true })).toBeVisible({ timeout: 20_000 })
@@ -1058,9 +1074,8 @@ test('een onzekere verzending van een ander tabblad wordt bij ongedaan maken her
   // Tabblad 1 verstuurt: de server krijgt de afstreping, tabblad 1 het antwoord
   // niet. Na de termijn is ze onzeker, en dat merk moet tabblad 2 zien.
   const vast = await houdEersteAfstrepingVast(page)
-  const verzonden = page.waitForRequest((r) => isPatch(new URL(r.url()), r.method()))
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await verzonden
+  await vast.aangekomen
 
   await tab2.getByRole('button', { name: en.inventory.undo }).click()
   await expect(groep(tab2, 'Pantry', naam)).toContainText('×2', { timeout: 20_000 })
